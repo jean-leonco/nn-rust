@@ -21,7 +21,9 @@ fn main() {
             let mut network = neural_network::NeuralNetwork::new(&topology);
 
             let input = dataset.images.slice(s![..32, ..]);
+            let target = dataset.labels.slice(s![..32, ..]);
             network.forward_propagation(input.to_owned());
+            network.backward_propagation(target.to_owned(), 10.0);
         }
         Err(err) => println!("{err:?}"),
     }
