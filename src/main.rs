@@ -1,4 +1,4 @@
-use image::{GenericImageView, Pixel, imageops::FilterType};
+use image::{DynamicImage, GenericImageView, imageops::FilterType};
 use ndarray::Array2;
 
 mod dataloader;
@@ -9,24 +9,17 @@ fn load_test_image() -> (Array2<f32>, Array2<f32>) {
     let mut label = Array2::zeros((1, 10));
     label[[0, 3]] = 1.0;
 
-    let img = image::open("test_image.jpeg")
+    let img = image::open("test_image.png")
         .expect("Failed to open image")
-        .resize(28, 28, FilterType::Nearest);
-    let (width, height) = img.dimensions();
+        .to_luma8();
+    let img = DynamicImage::ImageLuma8(img).resize_exact(28, 28, FilterType::Nearest);
 
     let mut data = Array2::zeros((1, 784));
-    for y in 0..height {
-        for x in 0..width {
-            let pixel = img.get_pixel(x, y);
-            let ch = pixel.to_rgb().0;
-            let r = ch[0] as f32;
-            let g = ch[1] as f32;
-            let b = ch[2] as f32;
-
-            let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-            let inverted = (255.0 - gray) / 255.0;
-            let i = y as usize * 28 + x as usize;
-            data[[0, i]] = inverted;
+    for y in 0..28 {
+        for x in 0..28 {
+            let px = img.get_pixel(x, y)[0] as f32;
+            let inv = (255.0 - px) / 255.0;
+            data[[0, (y * 28 + x) as usize]] = inv;
         }
     }
 
