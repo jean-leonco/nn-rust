@@ -28,16 +28,37 @@ pub enum DatasetError {
 }
 
 #[derive(Debug)]
+pub struct TrainingSet {
+    pub train: Dataset,
+    pub validation: Dataset,
+}
+
+impl TrainingSet {
+    pub fn load(train_prefix: &str, validation_prefix: &str) -> Result<Self, DatasetError> {
+        Ok(Self {
+            train: Dataset::load(
+                &format!("{train_prefix}-labels.idx1-ubyte"),
+                &format!("{train_prefix}-images.idx3-ubyte"),
+            )?,
+            validation: Dataset::load(
+                &format!("{validation_prefix}-labels.idx1-ubyte"),
+                &format!("{validation_prefix}-images.idx3-ubyte"),
+            )?,
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct Dataset {
     pub labels: Array2<f32>,
-    pub images: Array2<f32>,
+    pub data: Array2<f32>,
 }
 
 impl Dataset {
     pub fn load(labels_path: &str, images_path: &str) -> Result<Self, DatasetError> {
         Ok(Self {
             labels: Self::load_labels(labels_path)?,
-            images: Self::load_images(images_path)?,
+            data: Self::load_images(images_path)?,
         })
     }
 
