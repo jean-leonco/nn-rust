@@ -24,6 +24,7 @@ fn main() {
             let target = dataset.labels.slice(s![..32, ..]);
             network.forward_propagation(input.to_owned());
             network.backward_propagation(target.to_owned(), 10.0);
+            network.predict(input.to_owned());
         }
         Err(err) => println!("{err:?}"),
     }

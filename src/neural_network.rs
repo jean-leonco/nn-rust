@@ -43,25 +43,53 @@ impl NeuralNetwork {
         Array2::random((input_size, output_size), normal)
     }
 
-    pub fn forward_propagation(&mut self, input: Array2<f32>) {
-        self.activation_cache.clear();
-        self.activation_cache.push(input);
+    fn forward_pass(
+        weights: &[Array2<f32>],
+        bias: &[Array1<f32>],
+        num_of_layers: usize,
+        input: Array2<f32>,
+        cache: &mut Vec<Array2<f32>>,
+    ) {
+        cache.push(input);
 
-        for i in 0..self.num_of_layers {
-            let x = &self.activation_cache[i];
-            let bias = &self.bias[i];
-            let weight = &self.weights[i];
+        for i in 0..num_of_layers {
+            let x = &cache[i];
+            let bias = &bias[i];
+            let weight = &weights[i];
 
             let z = x.dot(weight) + bias;
 
-            let a = if i == self.num_of_layers - 1 {
+            let a = if i == num_of_layers - 1 {
                 Self::softmax(&z)
             } else {
                 Self::sigmoid(&z)
             };
 
-            self.activation_cache.push(a);
+            cache.push(a);
         }
+    }
+
+    pub fn predict(&self, input: Array2<f32>) -> Array2<f32> {
+        let mut cache = Vec::with_capacity(self.num_of_layers);
+        Self::forward_pass(
+            &self.weights,
+            &self.bias,
+            self.num_of_layers,
+            input,
+            &mut cache,
+        );
+        cache.last().unwrap().to_owned()
+    }
+
+    pub fn forward_propagation(&mut self, input: Array2<f32>) {
+        self.activation_cache.clear();
+        Self::forward_pass(
+            &self.weights,
+            &self.bias,
+            self.num_of_layers,
+            input,
+            &mut self.activation_cache,
+        );
     }
 
     fn sigmoid(z: &Array2<f32>) -> Array2<f32> {
@@ -99,7 +127,5 @@ impl NeuralNetwork {
             self.weights[i] = &self.weights[i] - (learning_rate * weight_gradient);
             self.bias[i] = &self.bias[i] - (learning_rate * bias_gradient);
         }
-
-        Ok(())
     }
 }
