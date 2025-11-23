@@ -3,6 +3,7 @@ use ndarray::Array2;
 
 mod dataloader;
 mod neural_network;
+extern crate blas_src;
 
 fn load_test_image() -> (Array2<f32>, Array2<f32>) {
     let mut label = Array2::zeros((1, 10));
