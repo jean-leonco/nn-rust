@@ -64,12 +64,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "nn-rust"
-version = "0.1.0"
+name = "ndarray-rand"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "180f724d496e84764e8ecf28fbe1da74ef231ec4ba15be65a9100be8445d73e3"
 dependencies = [
  "ndarray",
  "rand",
  "rand_distr",
+]
+
+[[package]]
+name = "nn-rust"
+version = "0.1.0"
+dependencies = [
+ "ndarray",
+ "ndarray-rand",
  "thiserror",
 ]
 

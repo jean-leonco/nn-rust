@@ -1,5 +1,7 @@
 use ndarray::s;
 
+use crate::dataset::NUM_OF_CLASSES;
+
 mod dataset;
 mod neural_network;
 
@@ -14,7 +16,10 @@ fn main() {
             );
 
             let cols = dataset.images.shape()[1];
-            let mut network = neural_network::NeuralNetwork::new(3, cols, 100);
+
+            let topology = [cols, 100, 100, 100, NUM_OF_CLASSES];
+            let mut network = neural_network::NeuralNetwork::new(&topology);
+
             let input = dataset.images.slice(s![..32, ..]);
             network.forward_propagation(input.to_owned());
         }

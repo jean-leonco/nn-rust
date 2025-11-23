@@ -1,9 +1,7 @@
 use std::f32;
 
 use ndarray::{Array1, Array2, Axis};
-use rand_distr::{Distribution, Normal};
-
-use crate::dataset::NUM_OF_CLASSES;
+use ndarray_rand::{RandomExt, rand_distr::Normal};
 
 #[derive(Debug)]
 pub struct NeuralNetwork {
@@ -13,40 +11,19 @@ pub struct NeuralNetwork {
 }
 
 impl NeuralNetwork {
-    pub fn new(hidden_layers: usize, input: usize, neurons: usize) -> Self {
-        let mut rng = rand::rng();
-
-        let num_connections = hidden_layers + 1;
-        let output_layer_idx = num_connections - 1;
+    pub fn new(topology: &[usize]) -> Self {
+        let num_connections = topology.len() - 1;
 
         let mut bias = Vec::with_capacity(num_connections);
         let mut weights = Vec::with_capacity(num_connections);
-        let activation_cache = Vec::with_capacity(hidden_layers + 2);
+        let activation_cache = Vec::with_capacity(topology.len());
 
         for i in 0..num_connections {
-            let weights_shape = if i == 0 {
-                (input, neurons)
-            } else if i == output_layer_idx {
-                (neurons, NUM_OF_CLASSES)
-            } else {
-                (neurons, neurons)
-            };
+            let input_size = topology[i];
+            let output_size = topology[i + 1];
 
-            let std_dev = 2.0 / ((weights_shape.0 + weights_shape.1) as f32);
-            let std_dev = std_dev.sqrt();
-            let normal = Normal::new(0.0, std_dev).unwrap();
-
-            let initialized_weights =
-                Array2::from_shape_fn(weights_shape, |_| normal.sample(&mut rng));
-            weights.push(initialized_weights);
-
-            let bias_shape = if i == output_layer_idx {
-                NUM_OF_CLASSES
-            } else {
-                neurons
-            };
-
-            bias.push(Array1::zeros(bias_shape));
+            weights.push(Self::xavier(input_size, output_size));
+            bias.push(Array1::zeros(output_size));
         }
 
         Self {
@@ -56,7 +33,16 @@ impl NeuralNetwork {
         }
     }
 
+    fn xavier(input_size: usize, output_size: usize) -> Array2<f32> {
+        let std_dev = 2.0 / ((input_size + output_size) as f32);
+        let std_dev = std_dev.sqrt();
+        let normal = Normal::new(0.0, std_dev).unwrap();
+
+        Array2::random((input_size, output_size), normal)
+    }
+
     pub fn forward_propagation(&mut self, input: Array2<f32>) {
+        self.activation_cache.clear();
         self.activation_cache.push(input);
 
         let num_of_layers = self.weights.len();
@@ -67,10 +53,10 @@ impl NeuralNetwork {
 
             let z = x.dot(weight) + bias;
 
-            let a = if i < num_of_layers - 1 {
-                Self::sigmoid(&z)
-            } else {
+            let a = if i == num_of_layers - 1 {
                 Self::softmax(&z)
+            } else {
+                Self::sigmoid(&z)
             };
 
             self.activation_cache.push(a);
@@ -82,8 +68,8 @@ impl NeuralNetwork {
     }
 
     fn softmax(z: &Array2<f32>) -> Array2<f32> {
-        let max = z.map_axis(Axis(1), |col| col.fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
-        let shifted = z + max.insert_axis(Axis(1));
+        let max = z.map_axis(Axis(1), |row| row.fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
+        let shifted = z - max.insert_axis(Axis(1));
         let exp = shifted.mapv(f32::exp);
         let sum = exp.sum_axis(Axis(1)).insert_axis(Axis(1));
         exp / sum
