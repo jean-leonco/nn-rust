@@ -1,11 +1,10 @@
 use image::{DynamicImage, GenericImageView, imageops::FilterType};
 use ndarray::Array2;
+use nn_rust::neural_network::NeuralNetwork;
 
-mod dataloader;
-mod neural_network;
-extern crate blas_src;
+fn main() {
+    let network = NeuralNetwork::load("model").unwrap();
 
-fn load_test_image() -> (Array2<f32>, Array2<f32>) {
     let mut label = Array2::zeros((1, 10));
     label[[0, 3]] = 1.0;
 
@@ -23,22 +22,10 @@ fn load_test_image() -> (Array2<f32>, Array2<f32>) {
         }
     }
 
-    (label, data)
-}
+    let prediction = network.predict(data.view());
 
-fn main() {
-    let topology = [784, 100, 100, 100, 10];
-    let mut network = neural_network::NeuralNetwork::new(&topology);
-
-    let mut loader = dataloader::mnist_loader::MNistLoader::load(128).unwrap();
-
-    network.train(&mut loader, 10, 0.5);
-
-    let (test_label, test_data) = load_test_image();
-    let prediction = network.predict(test_data.view());
-
-    let predicted = neural_network::NeuralNetwork::argmax(&prediction.view())[0];
-    let actual = neural_network::NeuralNetwork::argmax(&test_label.view())[0];
+    let predicted = NeuralNetwork::argmax(&prediction.view())[0];
+    let actual = NeuralNetwork::argmax(&label.view())[0];
 
     println!("Predicted: {}, Actual: {}", predicted, actual);
 }

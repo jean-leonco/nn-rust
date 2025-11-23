@@ -1,10 +1,31 @@
-use std::f32;
+use std::{f32, fs::File};
 
 use crate::dataloader::Dataloader;
+use bincode;
 use ndarray::{Array1, Array2, ArrayView2, Axis, Zip};
 use ndarray_rand::{RandomExt, rand_distr::Normal};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+pub enum NeuralNetworkEncodeError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Encode error: {0}")]
+    Encode(#[from] bincode::error::EncodeError),
+}
+
+#[derive(Debug, Error)]
+pub enum NeuralNetworkDecodeError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Decode error: {0}")]
+    Decode(#[from] bincode::error::DecodeError),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NeuralNetwork {
     weights: Vec<Array2<f32>>,
     num_of_layers: usize,
@@ -34,6 +55,18 @@ impl NeuralNetwork {
             bias,
             activation_cache,
         }
+    }
+
+    pub fn save(&self, path: &str) -> Result<(), NeuralNetworkEncodeError> {
+        let mut f = File::create(path)?;
+        bincode::serde::encode_into_std_write(&self, &mut f, bincode::config::standard())?;
+        Ok(())
+    }
+
+    pub fn load(path: &str) -> Result<Self, NeuralNetworkDecodeError> {
+        let mut f = File::open(path)?;
+        let decoded = bincode::serde::decode_from_std_read(&mut f, bincode::config::standard())?;
+        Ok(decoded)
     }
 
     fn xavier(input_size: usize, output_size: usize) -> Array2<f32> {
