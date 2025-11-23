@@ -5,7 +5,7 @@ use thiserror::Error;
 
 const LABELS_MAGIC_NUMBER: u32 = 2049;
 const IMAGES_MAGIC_NUMBER: u32 = 2051;
-const NUM_OF_CLASSES: usize = 10;
+pub const NUM_OF_CLASSES: usize = 10;
 
 #[derive(Debug, Error)]
 pub enum DatasetError {
