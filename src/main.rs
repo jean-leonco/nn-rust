@@ -12,9 +12,16 @@ fn main() {
             let topology = [cols, 100, 100, 100, NUM_OF_CLASSES];
             let mut network = neural_network::NeuralNetwork::new(&topology);
 
-            let input = dataset.validation.data.slice(s!(..1, ..)).to_owned();
             network.train(&dataset, 10, 128, 0.5);
-            network.predict(input);
+
+            let label = dataset.validation.labels.slice(s!(..1, ..)).to_owned();
+            let input = dataset.validation.data.slice(s!(..1, ..)).to_owned();
+
+            let prediction = network.predict(input);
+
+            let predicted = neural_network::NeuralNetwork::argmax(&prediction)[0];
+            let actual = neural_network::NeuralNetwork::argmax(&label)[0];
+            println!("Predicted: {}, Actual: {}", predicted, actual);
         }
         Err(err) => println!("{err:?}"),
     }

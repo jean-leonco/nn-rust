@@ -143,14 +143,15 @@ impl NeuralNetwork {
 
             let mut total_loss = 0.0;
             let mut total_correct = 0.0;
-            let mut samples = 0.0;
+            let mut samples = 0;
 
             let mut indices: Vec<usize> = (0..dataset.train.data.nrows()).collect();
+            let total_batches = (indices.len() + batch_size - 1) / batch_size;
             indices.shuffle(&mut rand::rng());
 
             for (i, batch) in indices.chunks(batch_size).enumerate() {
                 if i % 50 == 0 {
-                    println!("Batch {}/{}", i, indices.len() / batch_size);
+                    println!("Batch {}/{}", i, total_batches);
                 }
 
                 let curr_batch_size = batch.len() as f32;
@@ -158,7 +159,7 @@ impl NeuralNetwork {
                 let x = dataset.train.data.select(Axis(0), batch);
                 let y = dataset.train.labels.select(Axis(0), batch);
 
-                samples += x.nrows() as f32;
+                samples += x.nrows();
 
                 self.forward_propagation(x);
                 self.backward_propagation(y.clone(), learning_rate);
@@ -169,17 +170,34 @@ impl NeuralNetwork {
                 total_correct += Self::accuracy(output, &y) * curr_batch_size;
             }
 
-            let loss = total_loss / samples;
-            let accuracy = total_correct / samples;
+            let loss = total_loss / samples as f32;
+            let accuracy = total_correct / samples as f32;
+            let (eval_loss, eval_accuracy) = self.eval(&dataset);
 
             println!(
-                "Epoch {}/{} — Loss: {:.4}, Accuracy: {:.4}",
+                "Epoch {}/{} — Loss: {:.4}, Accuracy: {:.4}, Eval Loss: {:.4}, Eval Accuracy: {:.4}",
                 e + 1,
                 epoch,
                 loss,
-                accuracy
+                accuracy,
+                eval_loss,
+                eval_accuracy
             );
         }
+
+        let (training_loss, training_accuracy) = self.eval(&dataset);
+        println!(
+            "Training finished — Validation Loss: {:.4}, Validation Accuracy: {:.4}",
+            training_loss, training_accuracy
+        );
+    }
+
+    fn eval(&self, dataset: &TrainingSet) -> (f32, f32) {
+        let prediction = self.predict(dataset.validation.data.to_owned());
+        let loss = Self::cross_entropy_loss(&prediction, &dataset.validation.labels);
+        let accuracy = Self::accuracy(&prediction, &dataset.validation.labels);
+
+        (loss, accuracy)
     }
 
     fn cross_entropy_loss(output: &Array2<f32>, y: &Array2<f32>) -> f32 {
@@ -191,14 +209,12 @@ impl NeuralNetwork {
     fn accuracy(output: &Array2<f32>, y: &Array2<f32>) -> f32 {
         let matches = Zip::from(&Self::argmax(output))
             .and(&Self::argmax(y))
-            .map_collect(|&a, &b| a == b)
-            .map(|&b| b as usize)
+            .map_collect(|&a, &b| f32::from(a == b))
             .sum();
-
-        matches as f32 / output.nrows() as f32
+        matches / output.nrows() as f32
     }
 
-    fn argmax(x: &Array2<f32>) -> Array1<usize> {
+    pub fn argmax(x: &Array2<f32>) -> Array1<usize> {
         x.axis_iter(Axis(0))
             .map(|row| {
                 let (max_idx, _) = row
