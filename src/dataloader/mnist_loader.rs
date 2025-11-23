@@ -1,4 +1,4 @@
-use ndarray::{Array2, Axis};
+use ndarray::{Array2, ArrayView2, Axis, s};
 use rand::seq::SliceRandom;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -134,29 +134,39 @@ impl MNistLoader {
     }
 }
 
-impl Dataloader for MNistLoader {
+impl Dataloader<'_> for MNistLoader {
     fn num_of_batches(&self) -> usize {
         self.num_of_batches
     }
 
-    fn train_batches(&self) -> impl Iterator<Item = (Array2<f32>, Array2<f32>)> {
-        let mut indices: Vec<usize> = (0..self.train_x.nrows()).collect();
-        indices.shuffle(&mut rand::rng());
+    fn train_batches<'a>(
+        &'a mut self,
+    ) -> impl Iterator<Item = (ArrayView2<'a, f32>, ArrayView2<'a, f32>)> {
+        let n = self.train_x.nrows();
+        let mut perm: Vec<usize> = (0..n).collect();
+        perm.shuffle(&mut rand::rng());
 
-        let batches: Vec<Vec<usize>> = indices
-            .chunks(self.batch_size)
-            .map(|c| c.to_vec())
-            .collect();
+        self.train_x = self.train_x.select(Axis(0), &perm);
+        self.train_y = self.train_y.select(Axis(0), &perm);
 
-        batches.into_iter().map(move |batch| {
-            let xb = self.train_x.select(Axis(0), &batch);
-            let yb = self.train_y.select(Axis(0), &batch);
+        let num_batches = n / self.batch_size;
+        let mut batches = Vec::with_capacity(num_batches);
 
-            (xb, yb)
-        })
+        for i in 0..num_batches {
+            let start = i * self.batch_size;
+            let end = start + self.batch_size;
+
+            let xb = self.train_x.slice(s![start..end, ..]);
+            let yb = self.train_y.slice(s![start..end, ..]);
+            batches.push((xb, yb));
+        }
+
+        batches.into_iter()
     }
 
-    fn validation_batches(&self) -> impl Iterator<Item = (Array2<f32>, Array2<f32>)> {
-        std::iter::once((self.validation_x.clone(), self.validation_y.clone()))
+    fn validation_batches<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (ArrayView2<'a, f32>, ArrayView2<'a, f32>)> {
+        std::iter::once((self.validation_x.view(), self.validation_y.view()))
     }
 }

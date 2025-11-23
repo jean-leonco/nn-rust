@@ -37,15 +37,15 @@ fn main() {
     let topology = [784, 100, 100, 100, 10];
     let mut network = neural_network::NeuralNetwork::new(&topology);
 
-    let loader = dataloader::mnist_loader::MNistLoader::load(128).unwrap();
+    let mut loader = dataloader::mnist_loader::MNistLoader::load(128).unwrap();
 
-    network.train(&loader, 10, 0.5);
+    network.train(&mut loader, 10, 0.5);
 
     let (test_label, test_data) = load_test_image();
-    let prediction = network.predict(test_data);
+    let prediction = network.predict(test_data.view());
 
-    let predicted = neural_network::NeuralNetwork::argmax(&prediction)[0];
-    let actual = neural_network::NeuralNetwork::argmax(&test_label)[0];
+    let predicted = neural_network::NeuralNetwork::argmax(&prediction.view())[0];
+    let actual = neural_network::NeuralNetwork::argmax(&test_label.view())[0];
 
     println!("Predicted: {}, Actual: {}", predicted, actual);
 }

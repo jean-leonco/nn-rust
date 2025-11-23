@@ -1,7 +1,7 @@
 use std::f32;
 
 use crate::dataloader::Dataloader;
-use ndarray::{Array1, Array2, Axis, Zip};
+use ndarray::{Array1, Array2, ArrayView2, Axis, Zip};
 use ndarray_rand::{RandomExt, rand_distr::Normal};
 
 #[derive(Debug)]
@@ -48,10 +48,22 @@ impl NeuralNetwork {
         weights: &[Array2<f32>],
         bias: &[Array1<f32>],
         num_of_layers: usize,
-        input: Array2<f32>,
+        input: ArrayView2<f32>,
         cache: &mut Vec<Array2<f32>>,
     ) {
-        cache.push(input);
+        if cache.len() < num_of_layers + 1 {
+            cache.clear(); // Only clear if we are uninitialized
+            cache.push(input.to_owned());
+            for _ in 0..num_of_layers {
+                cache.push(Array2::zeros((0, 0)));
+            }
+        }
+
+        if cache[0].dim() != input.dim() {
+            cache[0] = input.to_owned();
+        } else {
+            cache[0].assign(&input);
+        }
 
         for i in 0..num_of_layers {
             let x = &cache[i];
@@ -66,11 +78,15 @@ impl NeuralNetwork {
                 Self::sigmoid(&z)
             };
 
-            cache.push(a);
+            if cache[i + 1].dim() != a.dim() {
+                cache[i + 1] = a;
+            } else {
+                cache[i + 1].assign(&a);
+            }
         }
     }
 
-    pub fn predict(&self, input: Array2<f32>) -> Array2<f32> {
+    pub fn predict(&self, input: ArrayView2<f32>) -> Array2<f32> {
         let mut cache = Vec::with_capacity(self.num_of_layers);
         Self::forward_pass(
             &self.weights,
@@ -82,8 +98,7 @@ impl NeuralNetwork {
         cache.last().unwrap().to_owned()
     }
 
-    fn forward_propagation(&mut self, input: Array2<f32>) {
-        self.activation_cache.clear();
+    fn forward_propagation(&mut self, input: ArrayView2<f32>) {
         Self::forward_pass(
             &self.weights,
             &self.bias,
@@ -109,7 +124,7 @@ impl NeuralNetwork {
         exp / sum
     }
 
-    fn backward_propagation(&mut self, y: &Array2<f32>, learning_rate: f32) {
+    fn backward_propagation(&mut self, y: &ArrayView2<f32>, learning_rate: f32) {
         let output_activation = self.activation_cache.last().unwrap();
 
         let batch_size = y.nrows() as f32;
@@ -125,12 +140,22 @@ impl NeuralNetwork {
                 dz = &dz.dot(&self.weights[i].t()) * Self::sigmoid_derivative(a);
             }
 
-            self.weights[i] -= &(weight_gradient * learning_rate);
-            self.bias[i] -= &(bias_gradient * learning_rate);
+            Zip::from(&mut self.weights[i])
+                .and(&weight_gradient)
+                .for_each(|w, &g| *w -= g * learning_rate);
+
+            Zip::from(&mut self.bias[i])
+                .and(&bias_gradient)
+                .for_each(|w, &g| *w -= g * learning_rate);
         }
     }
 
-    pub fn train(&mut self, loader: &impl Dataloader, epoch: usize, learning_rate: f32) {
+    pub fn train(
+        &mut self,
+        loader: &mut impl for<'a> Dataloader<'a>,
+        epoch: usize,
+        learning_rate: f32,
+    ) {
         for e in 0..epoch {
             println!("Starting epoch {}/{}", e + 1, epoch);
 
@@ -138,8 +163,8 @@ impl NeuralNetwork {
             let mut total_correct = 0.0;
             let mut samples = 0;
 
+            let num_of_batches = loader.num_of_batches();
             for (i, (x, y)) in loader.train_batches().enumerate() {
-                let num_of_batches = loader.num_of_batches();
                 let curr_batch_size = x.nrows() as f32;
 
                 if i % 50 == 0 {
@@ -154,7 +179,7 @@ impl NeuralNetwork {
                 let output = self.activation_cache.last().unwrap();
 
                 total_loss += Self::cross_entropy_loss(output, &y) * curr_batch_size;
-                total_correct += Self::accuracy(output, &y) * curr_batch_size;
+                total_correct += Self::accuracy(&output.view(), &y) * curr_batch_size;
             }
 
             let loss = total_loss / samples as f32;
@@ -179,7 +204,7 @@ impl NeuralNetwork {
         );
     }
 
-    fn eval(&self, loader: &impl Dataloader) -> (f32, f32) {
+    fn eval(&self, loader: &mut impl for<'a> Dataloader<'a>) -> (f32, f32) {
         let mut total_loss = 0.0;
         let mut total_correct = 0.0;
         let mut samples = 0;
@@ -191,7 +216,7 @@ impl NeuralNetwork {
 
             let prediction = self.predict(x);
             total_loss += Self::cross_entropy_loss(&prediction, &y) * curr_batch_size;
-            total_correct += Self::accuracy(&prediction, &y) * curr_batch_size;
+            total_correct += Self::accuracy(&prediction.view(), &y) * curr_batch_size;
         }
 
         let loss = total_loss / samples as f32;
@@ -200,13 +225,15 @@ impl NeuralNetwork {
         (loss, accuracy)
     }
 
-    fn cross_entropy_loss(output: &Array2<f32>, y: &Array2<f32>) -> f32 {
-        let probabilities = (output + 1e-8).mapv(f32::ln);
+    fn cross_entropy_loss(output: &Array2<f32>, y: &ArrayView2<f32>) -> f32 {
+        let mut probabilities = output + 1e-8;
+        probabilities.mapv_inplace(f32::ln);
+
         let loss = -(y * &probabilities).sum();
         loss / output.nrows() as f32
     }
 
-    fn accuracy(output: &Array2<f32>, y: &Array2<f32>) -> f32 {
+    fn accuracy(output: &ArrayView2<f32>, y: &ArrayView2<f32>) -> f32 {
         let matches = Zip::from(&Self::argmax(output))
             .and(&Self::argmax(y))
             .map_collect(|&a, &b| f32::from(a == b))
@@ -214,7 +241,7 @@ impl NeuralNetwork {
         matches / output.nrows() as f32
     }
 
-    pub fn argmax(x: &Array2<f32>) -> Array1<usize> {
+    pub fn argmax(x: &ArrayView2<f32>) -> Array1<usize> {
         x.axis_iter(Axis(0))
             .map(|row| {
                 let (max_idx, _) = row
