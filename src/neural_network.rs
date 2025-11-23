@@ -1,9 +1,8 @@
 use std::f32;
 
-use crate::dataset::TrainingSet;
+use crate::dataloader::Dataloader;
 use ndarray::{Array1, Array2, Axis, Zip};
 use ndarray_rand::{RandomExt, rand_distr::Normal};
-use rand::seq::SliceRandom;
 
 #[derive(Debug)]
 pub struct NeuralNetwork {
@@ -110,7 +109,7 @@ impl NeuralNetwork {
         exp / sum
     }
 
-    fn backward_propagation(&mut self, y: Array2<f32>, learning_rate: f32) {
+    fn backward_propagation(&mut self, y: &Array2<f32>, learning_rate: f32) {
         let output_activation = self.activation_cache.last().unwrap();
 
         let batch_size = y.nrows() as f32;
@@ -131,13 +130,7 @@ impl NeuralNetwork {
         }
     }
 
-    pub fn train(
-        &mut self,
-        dataset: &TrainingSet,
-        epoch: usize,
-        batch_size: usize,
-        learning_rate: f32,
-    ) {
+    pub fn train(&mut self, loader: &impl Dataloader, epoch: usize, learning_rate: f32) {
         for e in 0..epoch {
             println!("Starting epoch {}/{}", e + 1, epoch);
 
@@ -145,24 +138,18 @@ impl NeuralNetwork {
             let mut total_correct = 0.0;
             let mut samples = 0;
 
-            let mut indices: Vec<usize> = (0..dataset.train.data.nrows()).collect();
-            let total_batches = (indices.len() + batch_size - 1) / batch_size;
-            indices.shuffle(&mut rand::rng());
+            for (i, (x, y)) in loader.train_batches().enumerate() {
+                let num_of_batches = loader.num_of_batches();
+                let curr_batch_size = x.nrows() as f32;
 
-            for (i, batch) in indices.chunks(batch_size).enumerate() {
                 if i % 50 == 0 {
-                    println!("Batch {}/{}", i, total_batches);
+                    println!("Batch {}/{}", i, num_of_batches);
                 }
-
-                let curr_batch_size = batch.len() as f32;
-
-                let x = dataset.train.data.select(Axis(0), batch);
-                let y = dataset.train.labels.select(Axis(0), batch);
 
                 samples += x.nrows();
 
                 self.forward_propagation(x);
-                self.backward_propagation(y.clone(), learning_rate);
+                self.backward_propagation(&y, learning_rate);
 
                 let output = self.activation_cache.last().unwrap();
 
@@ -172,7 +159,7 @@ impl NeuralNetwork {
 
             let loss = total_loss / samples as f32;
             let accuracy = total_correct / samples as f32;
-            let (eval_loss, eval_accuracy) = self.eval(&dataset);
+            let (eval_loss, eval_accuracy) = self.eval(loader);
 
             println!(
                 "Epoch {}/{} — Loss: {:.4}, Accuracy: {:.4}, Eval Loss: {:.4}, Eval Accuracy: {:.4}",
@@ -185,17 +172,30 @@ impl NeuralNetwork {
             );
         }
 
-        let (training_loss, training_accuracy) = self.eval(&dataset);
+        let (training_loss, training_accuracy) = self.eval(loader);
         println!(
             "Training finished — Validation Loss: {:.4}, Validation Accuracy: {:.4}",
             training_loss, training_accuracy
         );
     }
 
-    fn eval(&self, dataset: &TrainingSet) -> (f32, f32) {
-        let prediction = self.predict(dataset.validation.data.to_owned());
-        let loss = Self::cross_entropy_loss(&prediction, &dataset.validation.labels);
-        let accuracy = Self::accuracy(&prediction, &dataset.validation.labels);
+    fn eval(&self, loader: &impl Dataloader) -> (f32, f32) {
+        let mut total_loss = 0.0;
+        let mut total_correct = 0.0;
+        let mut samples = 0;
+
+        for (x, y) in loader.validation_batches() {
+            let curr_batch_size = x.nrows() as f32;
+
+            samples += x.nrows();
+
+            let prediction = self.predict(x);
+            total_loss += Self::cross_entropy_loss(&prediction, &y) * curr_batch_size;
+            total_correct += Self::accuracy(&prediction, &y) * curr_batch_size;
+        }
+
+        let loss = total_loss / samples as f32;
+        let accuracy = total_correct / samples as f32;
 
         (loss, accuracy)
     }

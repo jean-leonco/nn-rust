@@ -1,13 +1,11 @@
 use image::{GenericImageView, Pixel, imageops::FilterType};
 use ndarray::Array2;
 
-use crate::dataset::NUM_OF_CLASSES;
-
-mod dataset;
+mod dataloader;
 mod neural_network;
 
 fn load_test_image() -> (Array2<f32>, Array2<f32>) {
-    let mut label = Array2::zeros((1, NUM_OF_CLASSES));
+    let mut label = Array2::zeros((1, 10));
     label[[0, 3]] = 1.0;
 
     let img = image::open("test_image.jpeg")
@@ -35,22 +33,18 @@ fn load_test_image() -> (Array2<f32>, Array2<f32>) {
 }
 
 fn main() {
-    match dataset::TrainingSet::load("train", "t10k") {
-        Ok(dataset) => {
-            let cols = dataset.train.data.shape()[1];
-            let topology = [cols, 100, 100, 100, NUM_OF_CLASSES];
-            let mut network = neural_network::NeuralNetwork::new(&topology);
+    let topology = [784, 100, 100, 100, 10];
+    let mut network = neural_network::NeuralNetwork::new(&topology);
 
-            network.train(&dataset, 10, 128, 0.5);
+    let loader = dataloader::mnist_loader::MNistLoader::load(128).unwrap();
 
-            let (test_data, test_label) = load_test_image();
-            let prediction = network.predict(test_data);
+    network.train(&loader, 10, 0.5);
 
-            let predicted = neural_network::NeuralNetwork::argmax(&prediction)[0];
-            let actual = neural_network::NeuralNetwork::argmax(&test_label)[0];
+    let (test_label, test_data) = load_test_image();
+    let prediction = network.predict(test_data);
 
-            println!("Predicted: {}, Actual: {}", predicted, actual);
-        }
-        Err(err) => println!("{err:?}"),
-    }
+    let predicted = neural_network::NeuralNetwork::argmax(&prediction)[0];
+    let actual = neural_network::NeuralNetwork::argmax(&test_label)[0];
+
+    println!("Predicted: {}, Actual: {}", predicted, actual);
 }
