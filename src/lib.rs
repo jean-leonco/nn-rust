@@ -5,5 +5,7 @@
 
 extern crate blas_src;
 
+pub mod activation;
 pub mod dataloader;
+pub mod metrics;
 pub mod neural_network;

@@ -1,9 +1,9 @@
 use image::{DynamicImage, GenericImageView, imageops::FilterType};
 use ndarray::Array2;
-use nn_rust::neural_network::NeuralNetwork;
+use nn_rust::{activation::relu, metrics, neural_network::NeuralNetwork};
 
 fn main() {
-    let network = NeuralNetwork::load("model").unwrap();
+    let network: NeuralNetwork<relu::ReLuActivationFn> = NeuralNetwork::load("model").unwrap();
 
     let mut label = Array2::zeros((1, 10));
     label[[0, 3]] = 1.0;
@@ -24,8 +24,8 @@ fn main() {
 
     let prediction = network.predict(&data.view());
 
-    let predicted = NeuralNetwork::argmax(&prediction.view())[0];
-    let actual = NeuralNetwork::argmax(&label.view())[0];
+    let predicted = metrics::argmax(&prediction.view())[0];
+    let actual = metrics::argmax(&label.view())[0];
 
     println!("Predicted: {predicted}, Actual: {actual}");
 }
