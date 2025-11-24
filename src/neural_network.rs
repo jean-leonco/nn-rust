@@ -59,7 +59,7 @@ impl NeuralNetwork {
 
     pub fn save(&self, path: &str) -> Result<(), NeuralNetworkEncodeError> {
         let mut f = File::create(path)?;
-        bincode::serde::encode_into_std_write(&self, &mut f, bincode::config::standard())?;
+        bincode::serde::encode_into_std_write(self, &mut f, bincode::config::standard())?;
         Ok(())
     }
 
@@ -81,7 +81,7 @@ impl NeuralNetwork {
         weights: &[Array2<f32>],
         bias: &[Array1<f32>],
         num_of_layers: usize,
-        input: ArrayView2<f32>,
+        input: &ArrayView2<f32>,
         cache: &mut Vec<Array2<f32>>,
     ) {
         if cache.len() < num_of_layers + 1 {
@@ -92,10 +92,10 @@ impl NeuralNetwork {
             }
         }
 
-        if cache[0].dim() != input.dim() {
-            cache[0] = input.to_owned();
+        if cache[0].dim() == input.dim() {
+            cache[0].assign(input);
         } else {
-            cache[0].assign(&input);
+            cache[0] = input.to_owned();
         }
 
         for i in 0..num_of_layers {
@@ -111,15 +111,15 @@ impl NeuralNetwork {
                 Self::sigmoid(&z)
             };
 
-            if cache[i + 1].dim() != a.dim() {
-                cache[i + 1] = a;
-            } else {
+            if cache[i + 1].dim() == a.dim() {
                 cache[i + 1].assign(&a);
+            } else {
+                cache[i + 1] = a;
             }
         }
     }
 
-    pub fn predict(&self, input: ArrayView2<f32>) -> Array2<f32> {
+    pub fn predict(&self, input: &ArrayView2<f32>) -> Array2<f32> {
         let mut cache = Vec::with_capacity(self.num_of_layers);
         Self::forward_pass(
             &self.weights,
@@ -131,7 +131,7 @@ impl NeuralNetwork {
         cache.last().unwrap().to_owned()
     }
 
-    fn forward_propagation(&mut self, input: ArrayView2<f32>) {
+    fn forward_propagation(&mut self, input: &ArrayView2<f32>) {
         Self::forward_pass(
             &self.weights,
             &self.bias,
@@ -201,12 +201,12 @@ impl NeuralNetwork {
                 let curr_batch_size = x.nrows() as f32;
 
                 if i % 50 == 0 {
-                    println!("Batch {}/{}", i, num_of_batches);
+                    println!("Batch {i}/{num_of_batches}");
                 }
 
                 samples += x.nrows();
 
-                self.forward_propagation(x);
+                self.forward_propagation(&x);
                 self.backward_propagation(&y, learning_rate);
 
                 let output = self.activation_cache.last().unwrap();
@@ -232,8 +232,7 @@ impl NeuralNetwork {
 
         let (training_loss, training_accuracy) = self.eval(loader);
         println!(
-            "Training finished — Validation Loss: {:.4}, Validation Accuracy: {:.4}",
-            training_loss, training_accuracy
+            "Training finished — Validation Loss: {training_loss:.4}, Validation Accuracy: {training_accuracy:.4}"
         );
     }
 
@@ -247,7 +246,7 @@ impl NeuralNetwork {
 
             samples += x.nrows();
 
-            let prediction = self.predict(x);
+            let prediction = self.predict(&x);
             total_loss += Self::cross_entropy_loss(&prediction, &y) * curr_batch_size;
             total_correct += Self::accuracy(&prediction.view(), &y) * curr_batch_size;
         }

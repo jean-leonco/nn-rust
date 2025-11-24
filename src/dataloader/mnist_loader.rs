@@ -48,7 +48,7 @@ impl MNistLoader {
         let validation_x = Self::load_images("mnist/t10k-images.idx3-ubyte")?;
         let validation_y = Self::load_labels("mnist/t10k-labels.idx1-ubyte")?;
 
-        let num_of_batches = (train_x.nrows() + batch_size - 1) / batch_size;
+        let num_of_batches = train_x.nrows().div_ceil(batch_size);
 
         Ok(Self {
             num_of_batches,
@@ -139,9 +139,9 @@ impl Dataloader<'_> for MNistLoader {
         self.num_of_batches
     }
 
-    fn train_batches<'a>(
-        &'a mut self,
-    ) -> impl Iterator<Item = (ArrayView2<'a, f32>, ArrayView2<'a, f32>)> {
+    fn train_batches(
+        &mut self,
+    ) -> impl Iterator<Item = (ArrayView2<'_, f32>, ArrayView2<'_, f32>)> {
         let n = self.train_x.nrows();
         let mut perm: Vec<usize> = (0..n).collect();
         perm.shuffle(&mut rand::rng());
@@ -164,9 +164,9 @@ impl Dataloader<'_> for MNistLoader {
         batches.into_iter()
     }
 
-    fn validation_batches<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (ArrayView2<'a, f32>, ArrayView2<'a, f32>)> {
+    fn validation_batches(
+        &self,
+    ) -> impl Iterator<Item = (ArrayView2<'_, f32>, ArrayView2<'_, f32>)> {
         std::iter::once((self.validation_x.view(), self.validation_y.view()))
     }
 }

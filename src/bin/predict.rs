@@ -16,16 +16,16 @@ fn main() {
     let mut data = Array2::zeros((1, 784));
     for y in 0..28 {
         for x in 0..28 {
-            let px = img.get_pixel(x, y)[0] as f32;
+            let px = f32::from(img.get_pixel(x, y)[0]);
             let inv = (255.0 - px) / 255.0;
             data[[0, (y * 28 + x) as usize]] = inv;
         }
     }
 
-    let prediction = network.predict(data.view());
+    let prediction = network.predict(&data.view());
 
     let predicted = NeuralNetwork::argmax(&prediction.view())[0];
     let actual = NeuralNetwork::argmax(&label.view())[0];
 
-    println!("Predicted: {}, Actual: {}", predicted, actual);
+    println!("Predicted: {predicted}, Actual: {actual}");
 }
