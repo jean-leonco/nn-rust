@@ -30,7 +30,7 @@ impl Model {
             layers,
             max_dim: *topology
                 .iter()
-                .max_by(|a, b| a.cmp(b))
+                .max_by(std::cmp::Ord::cmp)
                 .expect("Topology must contain at least one layer dimension"),
             topology,
             last_batch_size: None,
@@ -68,7 +68,7 @@ impl Model {
     pub fn predict(&self, x: &ArrayView2<f32>) -> Array2<f32> {
         let mut buffer_pool = self.build_buffer_pool(x.nrows());
 
-        buffer_pool[0].assign(&x);
+        buffer_pool[0].assign(x);
 
         for i in 0..self.layers.len() {
             let (left, right) = buffer_pool.split_at_mut(i + 1);
@@ -90,7 +90,7 @@ impl Model {
             }
         }
 
-        self.forward_pool[0].assign(&x);
+        self.forward_pool[0].assign(x);
 
         for i in 0..self.layers.len() {
             let (left, right) = self.forward_pool.split_at_mut(i + 1);
@@ -121,7 +121,7 @@ impl Model {
 
         self.backward_output
             .slice_mut(s![.., ..y.ncols()])
-            .assign(&y);
+            .assign(y);
 
         for i in (0..self.layers.len()).rev() {
             let layer = &mut self.layers[i];

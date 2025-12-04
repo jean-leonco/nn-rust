@@ -7,6 +7,12 @@ pub struct Sigmoid {
     pub(crate) a: Array2<f32>,
 }
 
+impl Default for Sigmoid {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Sigmoid {
     pub fn new() -> Self {
         Self {
@@ -25,7 +31,7 @@ impl Layer for Sigmoid {
     }
 
     fn forward(&self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {
-        output.assign(&input);
+        output.assign(input);
 
         // f(x) = (1 / (1 + e ^ -x))
         output.mapv_inplace(|x| 1.0 / (1.0 + (-x).exp()));
@@ -36,7 +42,7 @@ impl Layer for Sigmoid {
             self.a = Array2::zeros((input.nrows(), input.ncols()));
         }
 
-        self.a.assign(&input);
+        self.a.assign(input);
 
         // f(x) = (1 / (1 + e ^ -x))
         self.a.mapv_inplace(|x| 1.0 / (1.0 + (-x).exp()));

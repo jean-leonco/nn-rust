@@ -39,27 +39,24 @@ pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), Serial
         let layer_type = layer.get_layer_type();
         writer.write_all(&[layer_type as u8])?;
 
-        match layer.get_layer_type() {
-            LayerType::Dense => {
-                let params = layer
-                    .get_params()
-                    .ok_or(SerializationError::MissingParams)?;
-                let (w_rows, w_cols) = params.weights.dim();
-                let b_dim = params.bias.len();
+        if let LayerType::Dense = layer.get_layer_type() {
+            let params = layer
+                .get_params()
+                .ok_or(SerializationError::MissingParams)?;
+            let (w_rows, w_cols) = params.weights.dim();
+            let b_dim = params.bias.len();
 
-                write_u32(writer, u32::try_from(w_rows)?)?;
-                write_u32(writer, u32::try_from(w_cols)?)?;
-                write_u32(writer, u32::try_from(b_dim)?)?;
+            write_u32(writer, u32::try_from(w_rows)?)?;
+            write_u32(writer, u32::try_from(w_cols)?)?;
+            write_u32(writer, u32::try_from(b_dim)?)?;
 
-                for &value in params.weights.iter() {
-                    write_f32(writer, value)?;
-                }
-
-                for &value in params.bias.iter() {
-                    write_f32(writer, value)?;
-                }
+            for &value in params.weights {
+                write_f32(writer, value)?;
             }
-            _ => {}
+
+            for &value in params.bias {
+                write_f32(writer, value)?;
+            }
         }
     }
 
@@ -93,12 +90,12 @@ pub fn decode_model(reader: &mut impl Read) -> Result<Model, SerializationError>
                 let b_dim = read_u32(reader)? as usize;
 
                 let mut weights = Array2::zeros((w_rows, w_cols));
-                for value in weights.iter_mut() {
+                for value in &mut weights {
                     *value = read_f32(reader)?;
                 }
 
                 let mut bias = Array1::zeros(b_dim);
-                for value in bias.iter_mut() {
+                for value in &mut bias {
                     *value = read_f32(reader)?;
                 }
 

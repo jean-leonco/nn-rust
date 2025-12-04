@@ -7,6 +7,12 @@ pub struct Relu {
     pub(crate) z: Array2<f32>,
 }
 
+impl Default for Relu {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Relu {
     pub fn new() -> Self {
         Self {
@@ -25,7 +31,7 @@ impl Layer for Relu {
     }
 
     fn forward(&self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {
-        output.assign(&input);
+        output.assign(input);
 
         // f(x) = max(0,x)
         output.mapv_inplace(|x| x.max(0.0));
@@ -36,7 +42,7 @@ impl Layer for Relu {
             self.z = Array2::zeros((input.nrows(), input.ncols()));
         }
 
-        output.assign(&input);
+        output.assign(input);
 
         // f(x) = max(0,x)
         output.mapv_inplace(|x| x.max(0.0));

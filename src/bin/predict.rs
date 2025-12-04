@@ -5,7 +5,8 @@ use nn_rust::{metrics, model::model::Model};
 fn run_model(model_name: &str, display_name: &str, data: &Array2<f32>, true_label: usize) {
     println!("\n=== {display_name} Model ===");
 
-    let model = Model::load(model_name).expect(&format!("Failed to load model: {model_name}"));
+    let model =
+        Model::load(model_name).unwrap_or_else(|_| panic!("Failed to load model: {model_name}"));
 
     let prediction = model.predict(&data.view());
     let predicted = metrics::argmax(&prediction.view())[0];

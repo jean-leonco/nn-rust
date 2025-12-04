@@ -7,6 +7,12 @@ pub struct SoftmaxCrossEntropy {
     pub(crate) predicted: Array2<f32>,
 }
 
+impl Default for SoftmaxCrossEntropy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SoftmaxCrossEntropy {
     pub fn new() -> Self {
         Self {

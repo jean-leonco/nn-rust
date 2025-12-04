@@ -70,7 +70,7 @@ impl Layer for Dense {
             self.x = Array2::zeros((input.nrows(), input.ncols()));
         }
 
-        self.x.assign(&input);
+        self.x.assign(input);
 
         output.assign(&self.bias);
         // z = W * x + b
