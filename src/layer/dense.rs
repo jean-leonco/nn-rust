@@ -90,8 +90,13 @@ impl Layer for Dense {
         general_mat_mul(1.0, grad_output, &self.weights.t(), 0.0, grad_input);
 
         // dW = X^T · dY
-        let weight_gradient = self.x.t().dot(grad_output);
-        self.weights.scaled_add(-learning_rate, &weight_gradient);
+        general_mat_mul(
+            -learning_rate,
+            &self.x.t(),
+            grad_output,
+            1.0,
+            &mut self.weights.view_mut(),
+        );
 
         // db = sum(dY)
         let bias_gradient = grad_output.sum_axis(Axis(0));

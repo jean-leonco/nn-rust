@@ -129,12 +129,12 @@ impl Model {
             let input_bound = self.topology[i];
             let output_bound = self.topology[i + 1];
 
-            let mut layer_input = self.backward_input.slice_mut(s![.., ..input_bound]);
-            let layer_output = self.backward_output.slice(s![.., ..output_bound]);
+            let mut layer_input_slice = self.backward_input.slice_mut(s![.., ..input_bound]);
+            let layer_output_slice = self.backward_output.slice(s![.., ..output_bound]);
 
-            layer.backward(&mut layer_input, &layer_output, learning_rate);
+            layer.backward(&mut layer_input_slice, &layer_output_slice, learning_rate);
 
-            self.backward_output.assign(&self.backward_input);
+            std::mem::swap(&mut self.backward_input, &mut self.backward_output);
         }
     }
 
