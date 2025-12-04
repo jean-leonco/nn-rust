@@ -1,6 +1,5 @@
-use ndarray::{Array2, ArrayView2, Axis, s};
-use ndarray_rand::rand;
-use ndarray_rand::rand::seq::SliceRandom;
+use ndarray::{Array2, ArrayView2, Axis, Zip, s};
+use ndarray_rand::rand::{self, Rng};
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
@@ -131,6 +130,14 @@ impl MNistLoader {
     fn read_usize(reader: &mut impl Read) -> Result<usize, MNistLoaderError> {
         Ok(Self::read_u32(reader)? as usize)
     }
+
+    fn swap_rows(value: &mut Array2<f32>, i: usize, j: usize) {
+        // equivalent of vec.swap(i, j)
+        let (mut row_i, mut row_j) = value.multi_slice_mut((s![i, ..], s![j, ..]));
+        Zip::from(&mut row_i)
+            .and(&mut row_j)
+            .for_each(std::mem::swap);
+    }
 }
 
 impl Dataloader<'_> for MNistLoader {
@@ -142,11 +149,19 @@ impl Dataloader<'_> for MNistLoader {
         &mut self,
     ) -> impl Iterator<Item = (ArrayView2<'_, f32>, ArrayView2<'_, f32>)> {
         let n = self.train_x.nrows();
-        let mut perm: Vec<usize> = (0..n).collect();
-        perm.shuffle(&mut rand::rng());
 
-        self.train_x = self.train_x.select(Axis(0), &perm);
-        self.train_y = self.train_y.select(Axis(0), &perm);
+        let mut rng = rand::rng();
+
+        // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
+        for i in 0..(n - 1) {
+            let j = Rng::random_range(&mut rng, i..n);
+
+            // if row was selected to be swapped
+            if i != j {
+                Self::swap_rows(&mut self.train_x, i, j);
+                Self::swap_rows(&mut self.train_y, i, j);
+            }
+        }
 
         let num_batches = n / self.batch_size;
         let mut batches = Vec::with_capacity(num_batches);

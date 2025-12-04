@@ -17,7 +17,7 @@ pub struct HasLoss;
 
 pub struct ModelBuilder<State> {
     layers: Vec<Box<dyn Layer>>,
-    topology: Vec<usize>,
+    layer_dims: Vec<usize>,
     current_dim: usize,
     _state: PhantomData<State>,
 }
@@ -26,7 +26,7 @@ impl ModelBuilder<NoInput> {
     pub(crate) fn new() -> Self {
         Self {
             layers: Vec::new(),
-            topology: Vec::new(),
+            layer_dims: Vec::new(),
             current_dim: 0,
             _state: PhantomData,
         }
@@ -35,7 +35,7 @@ impl ModelBuilder<NoInput> {
     pub fn input(self, size: usize) -> ModelBuilder<HasInput> {
         ModelBuilder {
             layers: self.layers,
-            topology: self.topology,
+            layer_dims: self.layer_dims,
             current_dim: size,
             _state: PhantomData,
         }
@@ -48,12 +48,12 @@ impl<State> ModelBuilder<State> {
         layer: impl Layer + 'static,
         new_dim: Option<usize>,
     ) -> ModelBuilder<NewState> {
-        self.topology.push(self.current_dim);
+        self.layer_dims.push(self.current_dim);
         self.layers.push(Box::new(layer));
 
         ModelBuilder {
             layers: self.layers,
-            topology: self.topology,
+            layer_dims: self.layer_dims,
             current_dim: match new_dim {
                 Some(value) => value,
                 None => self.current_dim,
@@ -92,8 +92,8 @@ impl ModelBuilder<HasInput> {
 
 impl ModelBuilder<HasLoss> {
     pub fn build(mut self) -> Model {
-        self.topology.push(self.current_dim);
+        self.layer_dims.push(self.current_dim);
 
-        Model::new(self.layers, self.topology)
+        Model::new(self.layers, self.layer_dims)
     }
 }

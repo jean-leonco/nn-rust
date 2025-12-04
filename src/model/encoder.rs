@@ -25,10 +25,10 @@ pub enum SerializationError {
 }
 
 pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), SerializationError> {
-    let n_topology = u32::try_from(model.topology.len())?;
-    write_u32(writer, n_topology)?;
+    let n_layer_dims = u32::try_from(model.layer_dims.len())?;
+    write_u32(writer, n_layer_dims)?;
 
-    for value in &model.topology {
+    for value in &model.layer_dims {
         write_u32(writer, u32::try_from(*value)?)?;
     }
 
@@ -66,11 +66,11 @@ pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), Serial
 }
 
 pub fn decode_model(reader: &mut impl Read) -> Result<Model, SerializationError> {
-    let n_topology = read_u32(reader)? as usize;
-    let mut topology = Vec::with_capacity(n_topology);
+    let n_layer_dims = read_u32(reader)? as usize;
+    let mut layer_dims = Vec::with_capacity(n_layer_dims);
 
-    for _ in 0..n_topology {
-        topology.push(read_u32(reader)? as usize);
+    for _ in 0..n_layer_dims {
+        layer_dims.push(read_u32(reader)? as usize);
     }
 
     let n_layers = read_u32(reader)? as usize;
@@ -113,7 +113,7 @@ pub fn decode_model(reader: &mut impl Read) -> Result<Model, SerializationError>
         }
     }
 
-    Ok(Model::new(layers, topology))
+    Ok(Model::new(layers, layer_dims))
 }
 
 fn write_u32(writer: &mut impl Write, value: u32) -> Result<(), SerializationError> {

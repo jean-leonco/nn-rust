@@ -2,54 +2,58 @@ use nn_rust::{
     dataloader::mnist_loader::MNistLoader, layer::dense::Initialization, model::model::Model,
 };
 
-fn main() {
-    let mut loader = MNistLoader::load(128).expect("Unable to load MNIST dataset");
+fn train_model(
+    model_name: &str,
+    display_name: &str,
+    mut model: Model,
+    loader: &mut MNistLoader,
+    epochs: usize,
+    learning_rate: f32,
+) {
+    println!("\n=== {display_name} Model ===");
+    model.train(loader, epochs, learning_rate);
 
-    let mut relu_model = Model::builder()
+    let (validation_loss, validation_accuracy) = model.eval(loader);
+    println!(
+        "Validation Loss: {validation_loss:.4}, Validation Accuracy: {validation_accuracy:.4}"
+    );
+
+    model
+        .save(model_name)
+        .expect("Failed to save model: {model_name}");
+}
+
+fn main() {
+    let mut loader = MNistLoader::load(128).expect("Failed to load MNIST dataset");
+
+    let relu_model = Model::builder()
         .input(784)
-        .dense(100, Initialization::He)
+        .dense(256, Initialization::He)
         .relu()
-        .dense(100, Initialization::He)
-        .relu()
-        .dense(100, Initialization::He)
-        .relu()
-        .dense(100, Initialization::He)
-        .relu()
-        .dense(100, Initialization::He)
+        .dense(64, Initialization::He)
         .relu()
         .dense(10, Initialization::He)
         .softmax_cross_entropy()
         .build();
 
-    relu_model.train(&mut loader, 20, 0.02);
-    let (training_loss, training_accuracy) = relu_model.eval(&mut loader);
-    println!(
-        "ReLU - Validation Loss: {training_loss:.4}, Validation Accuracy: {training_accuracy:.4}"
-    );
-    relu_model.save("relu_model").expect("Unable to save model");
+    train_model("relu_model", "ReLU", relu_model, &mut loader, 15, 0.05);
 
-    let mut sigmoid_model = Model::builder()
+    let sigmoid_model = Model::builder()
         .input(784)
-        .dense(100, Initialization::Xavier)
+        .dense(256, Initialization::Xavier)
         .sigmoid()
-        .dense(100, Initialization::Xavier)
-        .sigmoid()
-        .dense(100, Initialization::Xavier)
-        .sigmoid()
-        .dense(100, Initialization::Xavier)
-        .sigmoid()
-        .dense(100, Initialization::Xavier)
+        .dense(64, Initialization::Xavier)
         .sigmoid()
         .dense(10, Initialization::Xavier)
         .softmax_cross_entropy()
         .build();
 
-    sigmoid_model.train(&mut loader, 20, 0.2);
-    let (training_loss, training_accuracy) = sigmoid_model.eval(&mut loader);
-    println!(
-        "Sigmoid - Validation Loss: {training_loss:.4}, Validation Accuracy: {training_accuracy:.4}"
+    train_model(
+        "sigmoid_model",
+        "Sigmoid",
+        sigmoid_model,
+        &mut loader,
+        15,
+        0.2,
     );
-    sigmoid_model
-        .save("sigmoid_model")
-        .expect("Unable to save model");
 }
