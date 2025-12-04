@@ -1,7 +1,9 @@
 use ndarray::{Array2, ArrayView2, Axis, s};
-use rand::seq::SliceRandom;
+use ndarray_rand::rand;
+use ndarray_rand::rand::seq::SliceRandom;
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::path::Path;
 use thiserror::Error;
 
 use crate::dataloader::Dataloader;
@@ -21,8 +23,8 @@ pub enum MNistLoaderError {
     #[error("Magic number mismatch, expected {0}, got {1}")]
     MagicNumber(u32, u32),
 
-    #[error("File {0} corrupted: expected EOF but found {1} extra bytes")]
-    TrailingBytes(String, usize),
+    #[error("Expected EOF but found {0} extra bytes")]
+    TrailingBytes(usize),
 
     #[error(
         "Invalid dimensions resulting in overflow or zero-size: count {0}, rows {1} and columns {2}"
@@ -60,7 +62,7 @@ impl MNistLoader {
         })
     }
 
-    fn load_labels(path: &str) -> Result<Array2<f32>, MNistLoaderError> {
+    fn load_labels(path: impl AsRef<Path>) -> Result<Array2<f32>, MNistLoaderError> {
         let f = File::open(path)?;
         let mut reader = BufReader::new(f);
 
@@ -81,10 +83,7 @@ impl MNistLoader {
 
         let mut remaining_bytes = Vec::with_capacity(1);
         if reader.read_to_end(&mut remaining_bytes)? > 0 {
-            return Err(MNistLoaderError::TrailingBytes(
-                path.to_string(),
-                remaining_bytes.len(),
-            ));
+            return Err(MNistLoaderError::TrailingBytes(remaining_bytes.len()));
         }
 
         Ok(labels)

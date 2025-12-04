@@ -1,10 +1,28 @@
 use image::{DynamicImage, GenericImageView, imageops::FilterType};
 use ndarray::Array2;
-use nn_rust::{activation::relu, metrics, neural_network::NeuralNetwork};
+use nn_rust::{metrics, model::model::Model};
+
+fn run_model(model_name: &str, display_name: &str, data: &Array2<f32>, true_label: usize) {
+    println!("\n=== {display_name} Model ===");
+
+    let model = Model::load(model_name).expect(&format!("Failed to load model: {model_name}"));
+
+    let prediction = model.predict(&data.view());
+    let predicted = metrics::argmax(&prediction.view())[0];
+
+    println!("Predicted: {predicted} | Actual: {true_label}");
+    println!("Class Probabilities:");
+
+    for (class, &prob) in prediction.row(0).iter().enumerate() {
+        if class == predicted {
+            println!("  {class}: {prob:.4}  <-- predicted");
+        } else {
+            println!("  {class}: {prob:.4}");
+        }
+    }
+}
 
 fn main() {
-    let network: NeuralNetwork<relu::ReLuActivationFn> = NeuralNetwork::load("model").unwrap();
-
     let mut label = Array2::zeros((1, 10));
     label[[0, 3]] = 1.0;
 
@@ -22,10 +40,8 @@ fn main() {
         }
     }
 
-    let prediction = network.predict(&data.view());
+    let true_label = metrics::argmax(&label.view())[0];
 
-    let predicted = metrics::argmax(&prediction.view())[0];
-    let actual = metrics::argmax(&label.view())[0];
-
-    println!("Predicted: {predicted}, Actual: {actual}");
+    run_model("relu_model", "ReLU", &data, true_label);
+    run_model("sigmoid_model", "Sigmoid", &data, true_label);
 }
