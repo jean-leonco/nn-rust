@@ -25,7 +25,7 @@ nn-rust is a toy neural network library written in Rust. This project was built 
 1.  Clone the repo:
 
     ```sh
-    git clone [https://github.com/jean-leonco/nn-rust.git](https://github.com/jean-leonco/nn-rust.git)
+    git clone https://github.com/jean-leonco/nn-rust.git
     cd nn-rust
     ```
 
@@ -78,15 +78,8 @@ Final Model Stats (M3 Pro Run):
 
 ### Inference Performance
 
-| System            | Wall Clock Time | Peak Memory |
-| :---------------- | :-------------- | :---------- |
-| AMD Ryzen 5 5600X | < 0.01s         | ~8 MB       |
-| Apple M3 Pro      | < 0.01s         | ~8 MB       |
-
-### Inference Performance
-
-- Wall Clock Time: < 0.01s (Instant)
-- Peak Memory Usage: ~8 MB (8,320 kbytes)
+- Wall Clock Time: < 0.01s on both systems
+- Peak Memory Usage: ~8 MB on both systems
 
 | Model   | Predicted | Actual | Result                |
 | :------ | :-------- | :----- | :-------------------- |
