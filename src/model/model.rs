@@ -19,7 +19,10 @@ pub struct Model {
     max_dim: usize,
     pub topology: Vec<usize>,
     last_batch_size: Option<usize>,
-    forward_pool: Vec<Array2<f32>>,
+
+    forward_input: Array2<f32>,
+    forward_output: Array2<f32>,
+
     backward_input: Array2<f32>,
     backward_output: Array2<f32>,
 }
@@ -34,7 +37,8 @@ impl Model {
                 .expect("Topology must contain at least one layer dimension"),
             topology,
             last_batch_size: None,
-            forward_pool: Vec::new(),
+            forward_input: Array2::zeros((0, 0)),
+            forward_output: Array2::zeros((0, 0)),
             backward_input: Array2::zeros((0, 0)),
             backward_output: Array2::zeros((0, 0)),
         }
@@ -58,52 +62,61 @@ impl Model {
         decode_model(&mut reader)
     }
 
-    fn build_buffer_pool(&self, batch_size: usize) -> Vec<Array2<f32>> {
-        self.topology
-            .iter()
-            .map(|output| Array2::zeros((batch_size, *output)))
-            .collect()
-    }
-
     pub fn predict(&self, x: &ArrayView2<f32>) -> Array2<f32> {
-        let mut buffer_pool = self.build_buffer_pool(x.nrows());
+        let batch_size = x.nrows();
 
-        buffer_pool[0].assign(x);
+        let mut input = Array2::zeros((batch_size, self.max_dim));
+        let mut output = Array2::zeros((batch_size, self.max_dim));
+
+        input.slice_mut(s![.., ..x.ncols()]).assign(x);
 
         for i in 0..self.layers.len() {
-            let (left, right) = buffer_pool.split_at_mut(i + 1);
-            let input = &left[left.len() - 1].view();
-            let output = &mut right[0].view_mut();
-            self.layers[i].forward(input, output);
+            let input_bound = self.topology[i];
+            let output_bound = self.topology[i + 1];
+
+            let input_slice = input.slice(s![.., ..input_bound]);
+            let mut output_slice = output.slice_mut(s![.., ..output_bound]);
+
+            self.layers[i].forward(&input_slice, &mut output_slice);
+
+            std::mem::swap(&mut input, &mut output);
         }
 
-        buffer_pool.last().expect("Unable to get output").to_owned()
+        let output_size = self.topology.last().expect("Unable to get output size");
+        input.slice_mut(s![.., ..*output_size]).to_owned()
     }
 
     fn forward_propagation(&mut self, x: &ArrayView2<f32>) -> Array2<f32> {
         let batch_size = x.nrows();
+
         match self.last_batch_size {
             Some(value) if value == batch_size => {}
             _ => {
                 self.last_batch_size = Some(batch_size);
-                self.forward_pool = self.build_buffer_pool(batch_size);
+                self.forward_input = Array2::zeros((batch_size, self.max_dim));
+                self.forward_output = Array2::zeros((batch_size, self.max_dim));
             }
         }
 
-        self.forward_pool[0].assign(x);
+        self.forward_input.slice_mut(s![.., ..x.ncols()]).assign(x);
 
         for i in 0..self.layers.len() {
-            let (left, right) = self.forward_pool.split_at_mut(i + 1);
-            let input = &left[left.len() - 1].view();
-            let output = &mut right[0].view_mut();
-            self.layers[i].forward_train(input, output);
+            let input_bound = self.topology[i];
+            let output_bound = self.topology[i + 1];
+
+            let input_slice = self.forward_input.slice(s![.., ..input_bound]);
+            let mut output_slice = self.forward_output.slice_mut(s![.., ..output_bound]);
+
+            self.layers[i].forward_train(&input_slice, &mut output_slice);
+
+            std::mem::swap(&mut self.forward_input, &mut self.forward_output);
         }
 
         self.last_batch_size = None;
 
-        self.forward_pool
-            .last()
-            .expect("Unable to get output")
+        let output_size = self.topology.last().expect("Unable to get output size");
+        self.forward_input
+            .slice_mut(s![.., ..*output_size])
             .to_owned()
     }
 
@@ -124,15 +137,13 @@ impl Model {
             .assign(y);
 
         for i in (0..self.layers.len()).rev() {
-            let layer = &mut self.layers[i];
-
             let input_bound = self.topology[i];
             let output_bound = self.topology[i + 1];
 
-            let mut layer_input_slice = self.backward_input.slice_mut(s![.., ..input_bound]);
-            let layer_output_slice = self.backward_output.slice(s![.., ..output_bound]);
+            let mut input_slice = self.backward_input.slice_mut(s![.., ..input_bound]);
+            let output_slice = self.backward_output.slice(s![.., ..output_bound]);
 
-            layer.backward(&mut layer_input_slice, &layer_output_slice, learning_rate);
+            self.layers[i].backward(&mut input_slice, &output_slice, learning_rate);
 
             std::mem::swap(&mut self.backward_input, &mut self.backward_output);
         }
