@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bytemuck = "1.24.0"
 image = "0.25.9"
 ndarray = { version = "0.17.1", features = ["blas"] }
 ndarray-rand = "0.16.0"

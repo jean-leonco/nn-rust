@@ -5,6 +5,7 @@ use crate::{
     },
     model::model::Model,
 };
+use bytemuck::{cast_slice, checked::cast_slice_mut};
 use ndarray::{Array1, Array2};
 use std::io::{Read, Write};
 use thiserror::Error;
@@ -28,9 +29,12 @@ pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), Serial
     let n_layer_dims = u32::try_from(model.layer_dims.len())?;
     write_u32(writer, n_layer_dims)?;
 
-    for value in &model.layer_dims {
-        write_u32(writer, u32::try_from(*value)?)?;
-    }
+    let layer_dims = model
+        .layer_dims
+        .iter()
+        .map(|value| u32::try_from(*value))
+        .collect::<Result<Vec<u32>, _>>()?;
+    writer.write_all(cast_slice(layer_dims.as_slice()))?;
 
     let n_layers = u32::try_from(model.layers.len())?;
     write_u32(writer, n_layers)?;
@@ -39,7 +43,7 @@ pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), Serial
         let layer_type = layer.get_layer_type();
         writer.write_all(&[layer_type as u8])?;
 
-        if let LayerType::Dense = layer.get_layer_type() {
+        if layer_type == LayerType::Dense {
             let params = layer
                 .get_params()
                 .ok_or(SerializationError::MissingParams)?;
@@ -50,13 +54,18 @@ pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), Serial
             write_u32(writer, u32::try_from(w_cols)?)?;
             write_u32(writer, u32::try_from(b_dim)?)?;
 
-            for &value in params.weights {
-                write_f32(writer, value)?;
-            }
-
-            for &value in params.bias {
-                write_f32(writer, value)?;
-            }
+            writer.write_all(cast_slice(
+                params
+                    .weights
+                    .as_slice()
+                    .ok_or(SerializationError::MissingParams)?,
+            ))?;
+            writer.write_all(cast_slice(
+                params
+                    .bias
+                    .as_slice()
+                    .ok_or(SerializationError::MissingParams)?,
+            ))?;
         }
     }
 
@@ -67,11 +76,15 @@ pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), Serial
 
 pub fn decode_model(reader: &mut impl Read) -> Result<Model, SerializationError> {
     let n_layer_dims = read_u32(reader)? as usize;
-    let mut layer_dims = Vec::with_capacity(n_layer_dims);
 
-    for _ in 0..n_layer_dims {
-        layer_dims.push(read_u32(reader)? as usize);
-    }
+    let byte_len = n_layer_dims * 4;
+    let mut dims_bytes = vec![0u8; byte_len];
+    reader.read_exact(&mut dims_bytes)?;
+
+    let layer_dims: Vec<usize> = dims_bytes
+        .chunks_exact(4)
+        .map(|chunk| u32::from_le_bytes(chunk.try_into().unwrap()) as usize)
+        .collect();
 
     let n_layers = read_u32(reader)? as usize;
     let mut layers: Vec<Box<dyn Layer>> = Vec::with_capacity(n_layers);
@@ -90,14 +103,17 @@ pub fn decode_model(reader: &mut impl Read) -> Result<Model, SerializationError>
                 let b_dim = read_u32(reader)? as usize;
 
                 let mut weights = Array2::zeros((w_rows, w_cols));
-                for value in &mut weights {
-                    *value = read_f32(reader)?;
-                }
+                reader.read_exact(cast_slice_mut(
+                    weights
+                        .as_slice_mut()
+                        .ok_or(SerializationError::MissingParams)?,
+                ))?;
 
                 let mut bias = Array1::zeros(b_dim);
-                for value in &mut bias {
-                    *value = read_f32(reader)?;
-                }
+                reader.read_exact(cast_slice_mut(
+                    bias.as_slice_mut()
+                        .ok_or(SerializationError::MissingParams)?,
+                ))?;
 
                 layers.push(Box::new(Dense::from_params(weights, bias)));
             }
@@ -125,15 +141,4 @@ fn read_u32(reader: &mut impl Read) -> Result<u32, SerializationError> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     Ok(u32::from_le_bytes(buf))
-}
-
-fn write_f32(writer: &mut impl Write, value: f32) -> Result<(), SerializationError> {
-    writer.write_all(&value.to_le_bytes())?;
-    Ok(())
-}
-
-fn read_f32(reader: &mut impl Read) -> Result<f32, SerializationError> {
-    let mut buf = [0u8; 4];
-    reader.read_exact(&mut buf)?;
-    Ok(f32::from_le_bytes(buf))
 }

@@ -5,7 +5,7 @@ pub mod relu;
 pub mod sigmoid;
 pub mod softmax_cross_entropy;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayerType {
     Dense = 0,
     Sigmoid,

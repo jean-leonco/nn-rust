@@ -748,6 +748,7 @@ name = "nn-rust"
 version = "0.1.0"
 dependencies = [
  "blas-src",
+ "bytemuck",
  "image",
  "ndarray",
  "ndarray-rand",
