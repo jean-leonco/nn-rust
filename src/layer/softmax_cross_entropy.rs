@@ -31,11 +31,13 @@ impl Layer for SoftmaxCrossEntropy {
     }
 
     fn forward(&self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {
-        let max = input.map_axis(Axis(1), |row| row.fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
-        let shifted = input - max.insert_axis(Axis(1));
-        let exp = shifted.mapv(f32::exp);
-        let sum = exp.sum_axis(Axis(1)).insert_axis(Axis(1));
-        output.assign(&(exp / sum));
+        output.assign(input);
+        for mut row in output.axis_iter_mut(Axis(0)) {
+            let max = row.fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            row.mapv_inplace(|x| (x - max).exp());
+            let sum = row.sum();
+            row.mapv_inplace(|x| x / sum);
+        }
     }
 
     fn forward_train(&mut self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {
@@ -43,12 +45,13 @@ impl Layer for SoftmaxCrossEntropy {
             self.predicted = Array2::zeros((input.nrows(), input.ncols()));
         }
 
-        let max = input.map_axis(Axis(1), |row| row.fold(f32::NEG_INFINITY, |a, &b| a.max(b)));
-        let shifted = input - max.insert_axis(Axis(1));
-        let exp = shifted.mapv(f32::exp);
-        let sum = exp.sum_axis(Axis(1)).insert_axis(Axis(1));
-
-        self.predicted.assign(&(exp / sum));
+        self.predicted.assign(input);
+        for mut row in self.predicted.axis_iter_mut(Axis(0)) {
+            let max = row.fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            row.mapv_inplace(|x| (x - max).exp());
+            let sum = row.sum();
+            row.mapv_inplace(|x| x / sum);
+        }
         output.assign(&self.predicted);
     }
 

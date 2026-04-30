@@ -31,10 +31,10 @@ impl Layer for Relu {
     }
 
     fn forward(&self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {
-        output.assign(input);
-
-        // f(x) = max(0,x)
-        output.mapv_inplace(|x| x.max(0.0));
+        Zip::from(output).and(input).for_each(|out, &in_| {
+            // f(x) = max(0,x)
+            *out = in_.max(0.0);
+        });
     }
 
     fn forward_train(&mut self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {
@@ -42,12 +42,14 @@ impl Layer for Relu {
             self.z = Array2::zeros((input.nrows(), input.ncols()));
         }
 
-        output.assign(input);
-
-        // f(x) = max(0,x)
-        output.mapv_inplace(|x| x.max(0.0));
-
-        self.z.assign(output);
+        Zip::from(&mut self.z)
+            .and(output)
+            .and(input)
+            .for_each(|z, out, &in_| {
+                // f(x) = max(0,x)
+                *out = in_.max(0.0);
+                *z = *out;
+            });
     }
 
     fn backward(

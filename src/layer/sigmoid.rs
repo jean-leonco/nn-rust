@@ -31,10 +31,10 @@ impl Layer for Sigmoid {
     }
 
     fn forward(&self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {
-        output.assign(input);
-
-        // f(x) = (1 / (1 + e ^ -x))
-        output.mapv_inplace(|x| 1.0 / (1.0 + (-x).exp()));
+        Zip::from(output).and(input).for_each(|out, &in_| {
+            // f(x) = (1 / (1 + e ^ -x))
+            *out = 1.0 / (1.0 + (-in_).exp());
+        });
     }
 
     fn forward_train(&mut self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {
@@ -42,11 +42,15 @@ impl Layer for Sigmoid {
             self.a = Array2::zeros((input.nrows(), input.ncols()));
         }
 
-        self.a.assign(input);
-
-        // f(x) = (1 / (1 + e ^ -x))
-        self.a.mapv_inplace(|x| 1.0 / (1.0 + (-x).exp()));
-        output.assign(&self.a);
+        Zip::from(&mut self.a)
+            .and(output)
+            .and(input)
+            .for_each(|a, out, &in_| {
+                // f(x) = (1 / (1 + e ^ -x))
+                let val = 1.0 / (1.0 + (-in_).exp());
+                *a = val;
+                *out = val;
+            });
     }
 
     fn backward(

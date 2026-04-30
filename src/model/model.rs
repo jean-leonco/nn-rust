@@ -91,7 +91,7 @@ impl Model {
         input_buffer.slice(s![.., ..*output_size]).to_owned()
     }
 
-    fn forward_train(&mut self, x: &ArrayView2<f32>) -> Array2<f32> {
+    fn forward_train(&mut self, x: &ArrayView2<f32>) -> ArrayView2<'_, f32> {
         self.ensure_cache_size(x.nrows());
 
         self.input_buffer.slice_mut(s![.., ..x.ncols()]).assign(x);
@@ -109,7 +109,7 @@ impl Model {
         }
 
         let output_size = self.layer_dims.last().expect("Unable to get output size");
-        self.input_buffer.slice(s![.., ..*output_size]).to_owned()
+        self.input_buffer.slice(s![.., ..*output_size])
     }
 
     fn backward(&mut self, y: &ArrayView2<f32>, learning_rate: f32) {
@@ -149,10 +149,11 @@ impl Model {
                     println!("Batch {i}/{num_of_batches}");
                 }
 
-                let output = self.forward_train(&x);
+                let _ = self.forward_train(&x);
 
                 self.backward(&y, learning_rate);
 
+                let output = self.predict(&x);
                 total_samples += x.nrows();
                 let batch_size = x.nrows() as f32;
                 total_loss += cross_entropy_loss(&output.view(), &y) * batch_size;

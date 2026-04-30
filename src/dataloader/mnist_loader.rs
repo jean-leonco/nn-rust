@@ -1,4 +1,4 @@
-use ndarray::{Array2, ArrayView2, Axis, Zip, s};
+use ndarray::{Array2, ArrayView2, Axis, s};
 use ndarray_rand::rand::{self, Rng};
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -49,7 +49,7 @@ impl MNistLoader {
         let validation_x = Self::load_images("mnist/t10k-images.idx3-ubyte")?;
         let validation_y = Self::load_labels("mnist/t10k-labels.idx1-ubyte")?;
 
-        let num_of_batches = train_x.nrows().div_ceil(batch_size);
+        let num_of_batches = train_x.nrows() / batch_size;
 
         Ok(Self {
             num_of_batches,
@@ -130,14 +130,6 @@ impl MNistLoader {
     fn read_usize(reader: &mut impl Read) -> Result<usize, MNistLoaderError> {
         Ok(Self::read_u32(reader)? as usize)
     }
-
-    fn swap_rows(value: &mut Array2<f32>, i: usize, j: usize) {
-        // equivalent of vec.swap(i, j)
-        let (mut row_i, mut row_j) = value.multi_slice_mut((s![i, ..], s![j, ..]));
-        Zip::from(&mut row_i)
-            .and(&mut row_j)
-            .for_each(std::mem::swap);
-    }
 }
 
 impl Dataloader<'_> for MNistLoader {
@@ -149,33 +141,46 @@ impl Dataloader<'_> for MNistLoader {
         &mut self,
     ) -> impl Iterator<Item = (ArrayView2<'_, f32>, ArrayView2<'_, f32>)> {
         let n = self.train_x.nrows();
-
         let mut rng = rand::rng();
 
         // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
+        let tx_ptr = self.train_x.as_mut_ptr();
+        let ty_ptr = self.train_y.as_mut_ptr();
+        let x_cols = self.train_x.ncols();
+        let y_cols = self.train_y.ncols();
+
         for i in 0..(n - 1) {
             let j = Rng::random_range(&mut rng, i..n);
 
             // if row was selected to be swapped
             if i != j {
-                Self::swap_rows(&mut self.train_x, i, j);
-                Self::swap_rows(&mut self.train_y, i, j);
+                unsafe {
+                    std::ptr::swap_nonoverlapping(
+                        tx_ptr.add(i * x_cols),
+                        tx_ptr.add(j * x_cols),
+                        x_cols,
+                    );
+                    std::ptr::swap_nonoverlapping(
+                        ty_ptr.add(i * y_cols),
+                        ty_ptr.add(j * y_cols),
+                        y_cols,
+                    );
+                }
             }
         }
 
-        let num_batches = n / self.batch_size;
-        let mut batches = Vec::with_capacity(num_batches);
+        let batch_size = self.batch_size;
+        let train_x = &self.train_x;
+        let train_y = &self.train_y;
 
-        for i in 0..num_batches {
-            let start = i * self.batch_size;
-            let end = start + self.batch_size;
+        (0..self.num_of_batches).map(move |i| {
+            let start = i * batch_size;
+            let end = start + batch_size;
 
-            let xb = self.train_x.slice(s![start..end, ..]);
-            let yb = self.train_y.slice(s![start..end, ..]);
-            batches.push((xb, yb));
-        }
-
-        batches.into_iter()
+            let xb = train_x.slice(s![start..end, ..]);
+            let yb = train_y.slice(s![start..end, ..]);
+            (xb, yb)
+        })
     }
 
     fn validation_batches(
