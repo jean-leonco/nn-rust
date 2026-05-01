@@ -28,7 +28,7 @@ fn main() {
 
     let relu_model = Model::builder()
         .input(784)
-        .dense(256, Initialization::He)
+        .dense(128, Initialization::He)
         .relu()
         .dense(64, Initialization::He)
         .relu()
@@ -53,7 +53,7 @@ fn main() {
         "Sigmoid",
         sigmoid_model,
         &mut loader,
-        15,
+        20, 
         0.2,
     );
 }
