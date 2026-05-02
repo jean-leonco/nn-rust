@@ -30,8 +30,10 @@ fn main() {
         .input(784)
         .dense(128, Initialization::He)
         .relu()
+        .dropout(0.2)
         .dense(64, Initialization::He)
         .relu()
+        .dropout(0.2)
         .dense(10, Initialization::He)
         .softmax_cross_entropy()
         .build();
