@@ -53,7 +53,7 @@ fn main() {
         "Sigmoid",
         sigmoid_model,
         &mut loader,
-        20, 
+        20,
         0.2,
     );
 }

@@ -1,13 +1,14 @@
+use bytemuck::checked::{cast_slice, cast_slice_mut};
 use ndarray::{Array1, Array2, ArrayView2, ArrayViewMut2, Axis, linalg::general_mat_mul};
 use ndarray_rand::{RandomExt, rand_distr::Normal};
 
-use crate::layer::{Layer, LayerParams, LayerType};
+use crate::{layer::Layer, model::encoder};
 
 #[derive(Debug)]
 pub struct Dense {
-    pub(crate) weights: Array2<f32>,
-    pub(crate) bias: Array1<f32>,
-    pub(crate) x: Array2<f32>,
+    weights: Array2<f32>,
+    bias: Array1<f32>,
+    x: Array2<f32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -37,25 +38,55 @@ impl Dense {
             x: Array2::zeros((0, 0)),
         }
     }
-
-    pub fn from_params(weights: Array2<f32>, bias: Array1<f32>) -> Self {
-        Self {
-            weights,
-            bias,
-            x: Array2::zeros((0, 0)),
-        }
-    }
 }
 
 impl Layer for Dense {
-    fn get_layer_type(&self) -> LayerType {
-        LayerType::Dense
+    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), encoder::SerializationError> {
+        writer.write_all(&[super::LayerType::Dense as u8])?;
+
+        let (w_rows, w_cols) = self.weights.dim();
+        let b_dim = self.bias.len();
+
+        encoder::write_u32(writer, u32::try_from(w_rows)?)?;
+        encoder::write_u32(writer, u32::try_from(w_cols)?)?;
+        encoder::write_u32(writer, u32::try_from(b_dim)?)?;
+
+        writer.write_all(cast_slice(
+            self.weights
+                .as_slice()
+                .ok_or(encoder::SerializationError::MissingParams)?,
+        ))?;
+        writer.write_all(cast_slice(
+            self.bias
+                .as_slice()
+                .ok_or(encoder::SerializationError::MissingParams)?,
+        ))?;
+
+        Ok(())
     }
 
-    fn get_params(&self) -> Option<LayerParams<'_>> {
-        Some(LayerParams {
-            weights: self.weights.view(),
-            bias: self.bias.view(),
+    fn read(reader: &mut impl std::io::Read) -> Result<Self, encoder::SerializationError> {
+        let w_rows = encoder::read_u32(reader)? as usize;
+        let w_cols = encoder::read_u32(reader)? as usize;
+        let b_dim = encoder::read_u32(reader)? as usize;
+
+        let mut weights = Array2::zeros((w_rows, w_cols));
+        reader.read_exact(cast_slice_mut(
+            weights
+                .as_slice_mut()
+                .ok_or(encoder::SerializationError::MissingParams)?,
+        ))?;
+
+        let mut bias = Array1::zeros(b_dim);
+        reader.read_exact(cast_slice_mut(
+            bias.as_slice_mut()
+                .ok_or(encoder::SerializationError::MissingParams)?,
+        ))?;
+
+        Ok(Self {
+            weights,
+            bias,
+            x: Array2::zeros((0, 0)),
         })
     }
 

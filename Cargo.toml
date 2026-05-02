@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bytemuck = "1.24.0"
+bytemuck = "1.25.0"
 image = "0.25.9"
-ndarray = { version = "0.17.1", features = ["blas"] }
+ndarray = { version = "0.17.2", features = ["blas"] }
 ndarray-rand = "0.16.0"
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-blas-src = { version = "0.10", features = ["accelerate"] }
+blas-src = { version = "0.14", features = ["accelerate"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-blas-src = { version = "0.10", features = ["openblas"] }
+blas-src = { version = "0.14", features = ["openblas"] }
 openblas-src = { version = "0.10", features = ["system"] }

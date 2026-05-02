@@ -1,10 +1,10 @@
 use ndarray::{Array2, ArrayView2, ArrayViewMut2, Axis};
 
-use crate::layer::{Layer, LayerParams, LayerType};
+use crate::{layer::Layer, model::encoder};
 
 #[derive(Debug)]
 pub struct SoftmaxCrossEntropy {
-    pub(crate) predicted: Array2<f32>,
+    predicted: Array2<f32>,
 }
 
 impl Default for SoftmaxCrossEntropy {
@@ -22,12 +22,14 @@ impl SoftmaxCrossEntropy {
 }
 
 impl Layer for SoftmaxCrossEntropy {
-    fn get_layer_type(&self) -> LayerType {
-        LayerType::SoftmaxCrossEntropy
+    fn write(&self, writer: &mut dyn std::io::Write) -> Result<(), encoder::SerializationError> {
+        writer.write_all(&[super::LayerType::SoftmaxCrossEntropy as u8])?;
+
+        Ok(())
     }
 
-    fn get_params(&self) -> Option<LayerParams<'_>> {
-        None
+    fn read(_reader: &mut impl std::io::Read) -> Result<Self, encoder::SerializationError> {
+        Ok(Self::new())
     }
 
     fn forward(&self, input: &ArrayView2<f32>, output: &mut ArrayViewMut2<f32>) {

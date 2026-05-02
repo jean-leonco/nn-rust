@@ -4,6 +4,7 @@ use crate::{
     layer::{
         Layer,
         dense::{Dense, Initialization},
+        dropout::Dropout,
         relu::Relu,
         sigmoid::Sigmoid,
         softmax_cross_entropy::SoftmaxCrossEntropy,
@@ -83,6 +84,10 @@ impl ModelBuilder<HasInput> {
 
     pub fn relu(self) -> ModelBuilder<HasInput> {
         self.add_layer(Relu::new(), None)
+    }
+
+    pub fn dropout(self, drop_rate: f32) -> ModelBuilder<HasInput> {
+        self.add_layer(Dropout::new(drop_rate), None)
     }
 
     pub fn softmax_cross_entropy(self) -> ModelBuilder<HasLoss> {

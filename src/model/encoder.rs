@@ -1,13 +1,12 @@
 use crate::{
     layer::{
-        Layer, LayerType, dense::Dense, relu::Relu, sigmoid::Sigmoid,
+        Layer, LayerType, dense::Dense, dropout::Dropout, relu::Relu, sigmoid::Sigmoid,
         softmax_cross_entropy::SoftmaxCrossEntropy,
     },
     model::model::Model,
 };
-use bytemuck::{cast_slice, checked::cast_slice_mut};
-use ndarray::{Array1, Array2};
-use std::io::{Read, Write};
+use bytemuck::cast_slice;
+use std::io::Read;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -25,7 +24,10 @@ pub enum SerializationError {
     MissingParams,
 }
 
-pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), SerializationError> {
+pub fn encode_model(
+    model: &Model,
+    writer: &mut dyn std::io::Write,
+) -> Result<(), SerializationError> {
     let n_layer_dims = u32::try_from(model.layer_dims.len())?;
     write_u32(writer, n_layer_dims)?;
 
@@ -40,33 +42,7 @@ pub fn encode_model(model: &Model, writer: &mut impl Write) -> Result<(), Serial
     write_u32(writer, n_layers)?;
 
     for layer in &model.layers {
-        let layer_type = layer.get_layer_type();
-        writer.write_all(&[layer_type as u8])?;
-
-        if layer_type == LayerType::Dense {
-            let params = layer
-                .get_params()
-                .ok_or(SerializationError::MissingParams)?;
-            let (w_rows, w_cols) = params.weights.dim();
-            let b_dim = params.bias.len();
-
-            write_u32(writer, u32::try_from(w_rows)?)?;
-            write_u32(writer, u32::try_from(w_cols)?)?;
-            write_u32(writer, u32::try_from(b_dim)?)?;
-
-            writer.write_all(cast_slice(
-                params
-                    .weights
-                    .as_slice()
-                    .ok_or(SerializationError::MissingParams)?,
-            ))?;
-            writer.write_all(cast_slice(
-                params
-                    .bias
-                    .as_slice()
-                    .ok_or(SerializationError::MissingParams)?,
-            ))?;
-        }
+        layer.write(writer)?;
     }
 
     writer.flush()?;
@@ -98,33 +74,19 @@ pub fn decode_model(reader: &mut impl Read) -> Result<Model, SerializationError>
 
         match layer_type {
             LayerType::Dense => {
-                let w_rows = read_u32(reader)? as usize;
-                let w_cols = read_u32(reader)? as usize;
-                let b_dim = read_u32(reader)? as usize;
-
-                let mut weights = Array2::zeros((w_rows, w_cols));
-                reader.read_exact(cast_slice_mut(
-                    weights
-                        .as_slice_mut()
-                        .ok_or(SerializationError::MissingParams)?,
-                ))?;
-
-                let mut bias = Array1::zeros(b_dim);
-                reader.read_exact(cast_slice_mut(
-                    bias.as_slice_mut()
-                        .ok_or(SerializationError::MissingParams)?,
-                ))?;
-
-                layers.push(Box::new(Dense::from_params(weights, bias)));
+                layers.push(Box::new(Dense::read(reader)?));
             }
             LayerType::Sigmoid => {
-                layers.push(Box::new(Sigmoid::new()));
+                layers.push(Box::new(Sigmoid::read(reader)?));
             }
             LayerType::Relu => {
-                layers.push(Box::new(Relu::new()));
+                layers.push(Box::new(Relu::read(reader)?));
             }
             LayerType::SoftmaxCrossEntropy => {
-                layers.push(Box::new(SoftmaxCrossEntropy::new()));
+                layers.push(Box::new(SoftmaxCrossEntropy::read(reader)?));
+            }
+            LayerType::Dropout => {
+                layers.push(Box::new(Dropout::read(reader)?));
             }
         }
     }
@@ -132,13 +94,24 @@ pub fn decode_model(reader: &mut impl Read) -> Result<Model, SerializationError>
     Ok(Model::new(layers, layer_dims))
 }
 
-fn write_u32(writer: &mut impl Write, value: u32) -> Result<(), SerializationError> {
+pub fn write_u32(writer: &mut dyn std::io::Write, value: u32) -> Result<(), SerializationError> {
     writer.write_all(&value.to_le_bytes())?;
     Ok(())
 }
 
-fn read_u32(reader: &mut impl Read) -> Result<u32, SerializationError> {
+pub fn write_f32(writer: &mut dyn std::io::Write, value: f32) -> Result<(), SerializationError> {
+    writer.write_all(&value.to_le_bytes())?;
+    Ok(())
+}
+
+pub fn read_u32(reader: &mut impl Read) -> Result<u32, SerializationError> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     Ok(u32::from_le_bytes(buf))
+}
+
+pub fn read_f32(reader: &mut impl Read) -> Result<f32, SerializationError> {
+    let mut buf = [0u8; 4];
+    reader.read_exact(&mut buf)?;
+    Ok(f32::from_le_bytes(buf))
 }
