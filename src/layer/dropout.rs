@@ -1,7 +1,7 @@
 use ndarray::{Array2, Zip};
 use ndarray_rand::{
     RandomExt,
-    rand::{self, rngs::ThreadRng},
+    rand::{SeedableRng, rngs::SmallRng},
     rand_distr::{Bernoulli, Distribution},
 };
 
@@ -13,7 +13,7 @@ pub struct Dropout {
     distribution: Bernoulli,
     drop_rate: f32,
     inv_p: f32,
-    rng: ThreadRng,
+    rng: SmallRng,
 }
 
 impl Dropout {
@@ -24,7 +24,7 @@ impl Dropout {
             distribution: Bernoulli::new(p as f64).unwrap(),
             drop_rate,
             inv_p: 1.0 / p,
-            rng: rand::rng(),
+            rng: SmallRng::from_os_rng(),
         }
     }
 }

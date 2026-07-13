@@ -2,7 +2,7 @@ use image::{DynamicImage, GenericImageView, imageops::FilterType};
 use ndarray::Array2;
 use nn_rust::{metrics, model::model::Model};
 
-fn run_model(model_name: &str, display_name: &str, data: &Array2<f32>, true_label: usize) {
+fn run_model(model_name: &str, display_name: &str, data: &Array2<u8>, true_label: usize) {
     println!("\n=== {display_name} Model ===");
 
     let model =
@@ -35,9 +35,8 @@ fn main() {
     let mut data = Array2::zeros((1, 784));
     for y in 0..28 {
         for x in 0..28 {
-            let px = f32::from(img.get_pixel(x, y)[0]);
-            let inv = (255.0 - px) / 255.0;
-            data[[0, (y * 28 + x) as usize]] = inv;
+            let px = img.get_pixel(x, y)[0];
+            data[[0, (y * 28 + x) as usize]] = 255 - px;
         }
     }
 

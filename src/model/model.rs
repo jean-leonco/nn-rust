@@ -67,13 +67,15 @@ impl Model {
         }
     }
 
-    pub fn predict(&self, x: &ArrayView2<f32>) -> Array2<f32> {
+    pub fn predict(&self, x: &ArrayView2<u8>) -> Array2<f32> {
         let batch_size = x.nrows();
 
         let mut input_buffer = Array2::zeros((batch_size, self.max_layer_dim));
         let mut output_buffer = Array2::zeros((batch_size, self.max_layer_dim));
 
-        input_buffer.slice_mut(s![.., ..x.ncols()]).assign(x);
+        input_buffer
+            .slice_mut(s![.., ..x.ncols()])
+            .zip_mut_with(&x, |dst, &src| *dst = src as f32 / 255.0);
 
         for i in 0..self.layers.len() {
             let input_dim = self.layer_dims[i];
@@ -91,10 +93,12 @@ impl Model {
         input_buffer.slice(s![.., ..*output_size]).to_owned()
     }
 
-    fn forward_train(&mut self, x: &ArrayView2<f32>) -> ArrayView2<'_, f32> {
+    fn forward_train(&mut self, x: &ArrayView2<u8>) -> ArrayView2<'_, f32> {
         self.ensure_cache_size(x.nrows());
 
-        self.input_buffer.slice_mut(s![.., ..x.ncols()]).assign(x);
+        self.input_buffer
+            .slice_mut(s![.., ..x.ncols()])
+            .zip_mut_with(&x, |dst, &src| *dst = src as f32 / 255.0);
 
         for i in 0..self.layers.len() {
             let input_dim = self.layer_dims[i];
@@ -149,15 +153,14 @@ impl Model {
                     println!("Batch {i}/{num_of_batches}");
                 }
 
-                let _ = self.forward_train(&x);
+                let batch_size = x.nrows() as f32;
+                total_samples += x.nrows();
+
+                let output = self.forward_train(&x);
+                total_loss += cross_entropy_loss(&output, &y) * batch_size;
+                total_correct += accuracy(&output, &y) * batch_size;
 
                 self.backward(&y, learning_rate);
-
-                let output = self.predict(&x);
-                total_samples += x.nrows();
-                let batch_size = x.nrows() as f32;
-                total_loss += cross_entropy_loss(&output.view(), &y) * batch_size;
-                total_correct += accuracy(&output.view(), &y) * batch_size;
             }
 
             let loss = total_loss / total_samples as f32;

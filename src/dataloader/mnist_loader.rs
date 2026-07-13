@@ -35,9 +35,9 @@ pub enum MNistLoaderError {
 pub struct MNistLoader {
     num_of_batches: usize,
     batch_size: usize,
-    train_x: Array2<f32>,
+    train_x: Array2<u8>,
     train_y: Array2<f32>,
-    validation_x: Array2<f32>,
+    validation_x: Array2<u8>,
     validation_y: Array2<f32>,
 }
 
@@ -88,7 +88,7 @@ impl MNistLoader {
         Ok(labels)
     }
 
-    fn load_images(path: &str) -> Result<Array2<f32>, MNistLoaderError> {
+    fn load_images(path: &str) -> Result<Array2<u8>, MNistLoaderError> {
         let f = File::open(path)?;
         let mut reader = BufReader::new(f);
 
@@ -106,9 +106,8 @@ impl MNistLoader {
             .and_then(|n| n.checked_mul(cols))
             .ok_or(MNistLoaderError::InvalidDimensions(count, rows, cols))?;
 
-        let mut data = vec![0u8; size];
-        reader.read_exact(&mut data)?;
-        let images: Vec<f32> = data.iter().map(|&byte| f32::from(byte) / 255.0).collect();
+        let mut images = vec![0u8; size];
+        reader.read_exact(&mut images)?;
 
         if images.len() != size {
             return Err(std::io::Error::new(
@@ -137,9 +136,7 @@ impl Dataloader<'_> for MNistLoader {
         self.num_of_batches
     }
 
-    fn train_batches(
-        &mut self,
-    ) -> impl Iterator<Item = (ArrayView2<'_, f32>, ArrayView2<'_, f32>)> {
+    fn train_batches(&mut self) -> impl Iterator<Item = (ArrayView2<'_, u8>, ArrayView2<'_, f32>)> {
         let n = self.train_x.nrows();
         let mut rng = rand::rng();
 
@@ -185,7 +182,7 @@ impl Dataloader<'_> for MNistLoader {
 
     fn validation_batches(
         &self,
-    ) -> impl Iterator<Item = (ArrayView2<'_, f32>, ArrayView2<'_, f32>)> {
+    ) -> impl Iterator<Item = (ArrayView2<'_, u8>, ArrayView2<'_, f32>)> {
         std::iter::once((self.validation_x.view(), self.validation_y.view()))
     }
 }
