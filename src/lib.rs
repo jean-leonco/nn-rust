@@ -6,7 +6,10 @@
 
 extern crate blas_src;
 
-pub mod dataloader;
-pub mod layer;
+pub mod dataset;
+pub mod execution_session;
 pub mod metrics;
-pub mod model;
+pub mod optimizer;
+pub mod sequential;
+pub mod weights;
+pub mod io;

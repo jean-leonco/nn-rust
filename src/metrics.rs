@@ -1,31 +1,48 @@
-use ndarray::{Array1, ArrayView2, Axis, Zip};
+use thiserror::Error;
 
-pub fn cross_entropy_loss(output: &ArrayView2<f32>, y: &ArrayView2<f32>) -> f32 {
-    let mut total_loss = 0.0;
-    Zip::from(output).and(y).for_each(|&o, &y_val| {
-        total_loss -= y_val * (o + 1e-8).ln();
-    });
-    total_loss / output.nrows() as f32
+#[derive(Error, Debug)]
+pub enum MetricsError {
+    #[error("Metrics error: empty row")]
+    EmptyRow,
+}
+pub type Result<T> = std::result::Result<T, MetricsError>;
+
+pub fn cross_entropy_loss(predictions: &[f32], targets: &[f32], n_rows: usize) -> f32 {
+    let mut loss = 0.0;
+    for (p, t) in predictions.iter().zip(targets.iter()) {
+        loss -= t * (p + 1e-8).ln()
+    }
+    loss / n_rows as f32
 }
 
-pub fn accuracy(output: &ArrayView2<f32>, y: &ArrayView2<f32>) -> f32 {
+pub fn accuracy(predictions: &[f32], targets: &[f32], n_rows: usize) -> Result<f32> {
     let mut matches = 0.0;
-    for (out_row, y_row) in output.axis_iter(Axis(0)).zip(y.axis_iter(Axis(0))) {
-        if argmax_row(&out_row) == argmax_row(&y_row) {
+    let cols = predictions.len() / n_rows;
+
+    let predictions_slice = predictions.chunks_exact(cols);
+    let targets_slice = targets.chunks_exact(cols);
+
+    for (p, t) in predictions_slice.zip(targets_slice) {
+        if argmax_row(&p)? == argmax_row(&t)? {
             matches += 1.0;
         }
     }
-    matches / output.nrows() as f32
+    Ok(matches / n_rows as f32)
 }
 
-fn argmax_row(row: &ndarray::ArrayView1<f32>) -> usize {
+fn argmax_row(row: &[f32]) -> Result<usize> {
     row.iter()
         .enumerate()
         .max_by(|(_, x), (_, y)| x.total_cmp(y))
         .map(|(idx, _)| idx)
-        .unwrap()
+        .ok_or(MetricsError::EmptyRow)
 }
 
-pub fn argmax(x: &ArrayView2<f32>) -> Array1<usize> {
-    x.axis_iter(Axis(0)).map(|row| argmax_row(&row)).collect()
+pub fn argmax(predictions: &[f32], n_rows: usize) -> Result<Vec<usize>> {
+    let cols = predictions.len() / n_rows;
+
+    predictions
+        .chunks_exact(cols)
+        .map(|row| argmax_row(&row))
+        .collect()
 }
