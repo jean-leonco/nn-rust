@@ -29,6 +29,12 @@ pub struct SequentialBuilder<State> {
 
 pub type NewSequentialBuilder = SequentialBuilder<NoInput>;
 
+impl Default for SequentialBuilder<NoInput> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SequentialBuilder<NoInput> {
     pub fn new() -> Self {
         Self {

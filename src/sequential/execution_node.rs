@@ -37,9 +37,6 @@ impl Initializer {
     }
 }
 
-// TODO: Check if we can improve data driven design here
-// e.g start and end offsets on SoA, initializer on pool?
-// current size = 72 (0x48), align = 0x8, no Drop
 #[derive(Debug)]
 pub enum SequentialExecutionNode {
     Dense {

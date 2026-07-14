@@ -5,10 +5,7 @@ use nn_rust::{
     optimizer::SgdOptimizer,
     sequential::{Initializer, Sequential, SequentialModel},
 };
-use rand::{
-    SeedableRng,
-    rngs::{SmallRng, SysRng},
-};
+use rand::{SeedableRng, rngs::SmallRng};
 
 fn train_model(
     model_name: &str,
@@ -39,10 +36,10 @@ fn train_model(
             MnistDataset::convert_to_px(x_raw, &mut x);
             let predictions = session.forward(&model.weights, &x).unwrap();
             e_samples += batch_size;
-            e_loss += cross_entropy_loss(predictions, &y, batch_size) * batch_size as f32;
-            e_correct += accuracy(predictions, &y, batch_size).unwrap() * batch_size as f32;
+            e_loss += cross_entropy_loss(predictions, y, batch_size) * batch_size as f32;
+            e_correct += accuracy(predictions, y, batch_size).unwrap() * batch_size as f32;
 
-            let gradients = session.backward(&model.weights, &x, &y);
+            let gradients = session.backward(&model.weights, &x, y);
             sgd.step(&mut model.weights, gradients);
         }
 
@@ -61,8 +58,8 @@ fn train_model(
         MnistDataset::convert_to_px(x_raw, &mut x);
         let predictions = session.forward(&model.weights, &x).unwrap();
         val_samples += batch_size;
-        val_loss += cross_entropy_loss(predictions, &y, batch_size) * batch_size as f32;
-        val_correct += accuracy(predictions, &y, batch_size).unwrap() * batch_size as f32;
+        val_loss += cross_entropy_loss(predictions, y, batch_size) * batch_size as f32;
+        val_correct += accuracy(predictions, y, batch_size).unwrap() * batch_size as f32;
     }
     println!(
         "Val Loss: {:.4}, Val Acc: {:.4}",
@@ -75,7 +72,7 @@ fn train_model(
 fn main() {
     let batch_size = 128;
     let mut dataset = MnistDataset::load(batch_size).expect("Failed to load MNIST dataset");
-    let mut rng = SmallRng::try_from_rng(&mut SysRng).unwrap();
+    let mut rng = SmallRng::seed_from_u64(42);
 
     let mut relu_model = Sequential::builder()
         .input(784)
@@ -87,7 +84,8 @@ fn main() {
         .dropout(0.2)
         .dense(10, Initializer::He)
         .softmax_cross_entropy()
-        .build(&mut rng).unwrap();
+        .build(&mut rng)
+        .unwrap();
 
     train_model(
         "relu_model",
@@ -108,7 +106,8 @@ fn main() {
         .sigmoid()
         .dense(10, Initializer::Xavier)
         .softmax_cross_entropy()
-        .build(&mut rng).unwrap();
+        .build(&mut rng)
+        .unwrap();
 
     train_model(
         "sigmoid_model",

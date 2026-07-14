@@ -23,7 +23,7 @@ pub fn accuracy(predictions: &[f32], targets: &[f32], n_rows: usize) -> Result<f
     let targets_slice = targets.chunks_exact(cols);
 
     for (p, t) in predictions_slice.zip(targets_slice) {
-        if argmax_row(&p)? == argmax_row(&t)? {
+        if argmax_row(p)? == argmax_row(t)? {
             matches += 1.0;
         }
     }
@@ -41,8 +41,5 @@ fn argmax_row(row: &[f32]) -> Result<usize> {
 pub fn argmax(predictions: &[f32], n_rows: usize) -> Result<Vec<usize>> {
     let cols = predictions.len() / n_rows;
 
-    predictions
-        .chunks_exact(cols)
-        .map(|row| argmax_row(&row))
-        .collect()
+    predictions.chunks_exact(cols).map(argmax_row).collect()
 }

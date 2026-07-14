@@ -11,7 +11,6 @@ pub enum WeightsError {
 }
 pub type Result<T> = std::result::Result<T, WeightsError>;
 
-// TODO: Improve design, maybe we dont need to pass around full sequential blueprint
 #[derive(Debug)]
 pub struct Weights {
     pub values: Vec<f32>,
@@ -22,23 +21,19 @@ impl Weights {
         let mut values = Vec::with_capacity(blueprint.weights_size);
 
         for node in &blueprint.nodes {
-            match node {
-                sequential::SequentialExecutionNode::Dense {
-                    input_dim,
-                    output_dim,
-                    initializer,
-                    ..
-                } => {
-                    let std_dev = initializer.std_dev(*input_dim, *output_dim);
-                    let normal = Normal::new(0.0, std_dev)?;
-                    for _ in 0..(*input_dim * *output_dim) {
-                        values.push(normal.sample(rng));
-                    }
-                    for _ in 0..*output_dim {
-                        values.push(0.0);
-                    }
+            if let sequential::SequentialExecutionNode::Dense {
+                input_dim,
+                output_dim,
+                initializer,
+                ..
+            } = node
+            {
+                let std_dev = initializer.std_dev(*input_dim, *output_dim);
+                let normal = Normal::new(0.0, std_dev)?;
+                for _ in 0..(*input_dim * *output_dim) {
+                    values.push(normal.sample(rng));
                 }
-                _ => {}
+                values.extend(std::iter::repeat_n(0.0, *output_dim));
             }
         }
 

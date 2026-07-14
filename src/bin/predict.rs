@@ -6,7 +6,7 @@ fn run_model(model_name: &str, display_name: &str, data: &[f32], true_label: usi
 
     let model = SequentialModel::load(model_name).unwrap();
 
-    let prediction = model.predict(&data).unwrap();
+    let prediction = model.predict(data).unwrap();
     let predicted = metrics::argmax(&prediction, 1).unwrap()[0];
 
     println!("Predicted: {predicted} | Actual: {true_label}");
