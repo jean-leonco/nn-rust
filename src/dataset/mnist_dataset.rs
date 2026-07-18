@@ -40,11 +40,11 @@ pub struct MnistDataset {
 
 impl MnistDataset {
     pub fn load(batch_size: usize) -> Result<Self, MnistDatasetError> {
-        let (train_x, n_train_imgs) = Self::load_images("Mnist/train-images.idx3-ubyte")?;
-        let train_y = Self::load_labels("Mnist/train-labels.idx1-ubyte")?;
+        let (train_x, n_train_imgs) = Self::load_images("mnist/train-images.idx3-ubyte")?;
+        let train_y = Self::load_labels("mnist/train-labels.idx1-ubyte")?;
 
-        let (validation_x, n_validation_imgs) = Self::load_images("Mnist/t10k-images.idx3-ubyte")?;
-        let validation_y = Self::load_labels("Mnist/t10k-labels.idx1-ubyte")?;
+        let (validation_x, n_validation_imgs) = Self::load_images("mnist/t10k-images.idx3-ubyte")?;
+        let validation_y = Self::load_labels("mnist/t10k-labels.idx1-ubyte")?;
 
         Ok(Self {
             batch_size,
