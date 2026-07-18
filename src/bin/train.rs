@@ -34,10 +34,13 @@ fn train_model(
 
         for (x_raw, y) in dataset.train_batches(&mut train_rng) {
             MnistDataset::convert_to_px(x_raw, &mut x);
-            let predictions = session.forward(&model.weights, &x).unwrap();
+            let predictions = session
+                .forward(&model.weights, &x)
+                .expect("Failed to run forward");
             e_samples += batch_size;
             e_loss += cross_entropy_loss(predictions, y, batch_size) * batch_size as f32;
-            e_correct += accuracy(predictions, y, batch_size).unwrap() * batch_size as f32;
+            e_correct += accuracy(predictions, y, batch_size).expect("Failed to get accuracy")
+                * batch_size as f32;
 
             let gradients = session.backward(&model.weights, &x, y);
             sgd.step(&mut model.weights, gradients);
@@ -56,17 +59,20 @@ fn train_model(
     let mut val_samples = 0;
     for (x_raw, y) in dataset.validation_batches() {
         MnistDataset::convert_to_px(x_raw, &mut x);
-        let predictions = session.forward(&model.weights, &x).unwrap();
+        let predictions = session
+            .forward(&model.weights, &x)
+            .expect("Failed to run forward");
         val_samples += batch_size;
         val_loss += cross_entropy_loss(predictions, y, batch_size) * batch_size as f32;
-        val_correct += accuracy(predictions, y, batch_size).unwrap() * batch_size as f32;
+        val_correct += accuracy(predictions, y, batch_size).expect("Failed to get accuracy")
+            * batch_size as f32;
     }
     println!(
         "Val Loss: {:.4}, Val Acc: {:.4}",
         val_loss / val_samples as f32,
         val_correct / val_samples as f32
     );
-    model.save(model_name).unwrap();
+    model.save(model_name).expect("Failed to save model");
 }
 
 fn main() {
@@ -85,7 +91,7 @@ fn main() {
         .dense(10, Initializer::He)
         .softmax_cross_entropy()
         .build(&mut rng)
-        .unwrap();
+        .expect("Failed to build model");
 
     train_model(
         "relu_model",
@@ -93,7 +99,7 @@ fn main() {
         &mut relu_model,
         &mut rng,
         &mut dataset,
-        15,
+        50,
         batch_size,
         0.05,
     );
@@ -102,12 +108,14 @@ fn main() {
         .input(784)
         .dense(256, Initializer::Xavier)
         .sigmoid()
+        .dropout(0.2)
         .dense(64, Initializer::Xavier)
         .sigmoid()
+        .dropout(0.2)
         .dense(10, Initializer::Xavier)
         .softmax_cross_entropy()
         .build(&mut rng)
-        .unwrap();
+        .expect("Failed to build model");
 
     train_model(
         "sigmoid_model",
@@ -115,7 +123,7 @@ fn main() {
         &mut sigmoid_model,
         &mut rng,
         &mut dataset,
-        20,
+        50,
         batch_size,
         0.2,
     );

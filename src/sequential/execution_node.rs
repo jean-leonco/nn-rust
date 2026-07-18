@@ -97,7 +97,7 @@ impl SequentialExecutionNode {
                 a_end,
                 input_a_start,
             } => {
-                buf.push(0); // variant 0
+                buf.push(0);
                 buf.extend_from_slice(&(*input_dim as u32).to_le_bytes());
                 buf.extend_from_slice(&(*output_dim as u32).to_le_bytes());
                 buf.push(initializer.to_u8());
@@ -117,7 +117,7 @@ impl SequentialExecutionNode {
                 mask_start,
                 mask_end,
             } => {
-                buf.push(1); // variant 1
+                buf.push(1);
                 buf.extend_from_slice(&p.to_le_bytes());
                 buf.extend_from_slice(&inv_p.to_le_bytes());
                 buf.extend_from_slice(&(*data_start as u32).to_le_bytes());
@@ -126,12 +126,12 @@ impl SequentialExecutionNode {
                 buf.extend_from_slice(&(*mask_end as u32).to_le_bytes());
             }
             SequentialExecutionNode::Relu { a_start, a_end } => {
-                buf.push(2); // variant 2
+                buf.push(2);
                 buf.extend_from_slice(&(*a_start as u32).to_le_bytes());
                 buf.extend_from_slice(&(*a_end as u32).to_le_bytes());
             }
             SequentialExecutionNode::Sigmoid { a_start, a_end } => {
-                buf.push(3); // variant 3
+                buf.push(3);
                 buf.extend_from_slice(&(*a_start as u32).to_le_bytes());
                 buf.extend_from_slice(&(*a_end as u32).to_le_bytes());
             }
@@ -140,7 +140,7 @@ impl SequentialExecutionNode {
                 a_end,
                 output_dim,
             } => {
-                buf.push(4); // variant 4
+                buf.push(4);
                 buf.extend_from_slice(&(*a_start as u32).to_le_bytes());
                 buf.extend_from_slice(&(*a_end as u32).to_le_bytes());
                 buf.extend_from_slice(&(*output_dim as u32).to_le_bytes());

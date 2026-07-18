@@ -9,7 +9,11 @@ use rand::{
     rngs::{SmallRng, SysRng},
 };
 
-use crate::{execution_session::ExecutionSession, sequential, weights, io::{read_u32, write_u32}};
+use crate::{
+    execution_session::ExecutionSession,
+    io::{read_u32, write_u32},
+    sequential, weights,
+};
 
 #[derive(Error, Debug)]
 pub enum ModelError {
@@ -50,7 +54,8 @@ impl SequentialModel {
     }
 
     pub fn predict(&self, x: &[f32]) -> Result<Vec<f32>> {
-        let mut rng = SmallRng::try_from_rng(&mut SysRng).map_err(|e| ModelError::Rand(e.to_string()))?;
+        let mut rng =
+            SmallRng::try_from_rng(&mut SysRng).map_err(|e| ModelError::Rand(e.to_string()))?;
         let mut session = ExecutionSession::new(&self.blueprint, &mut rng, 1);
 
         let output = session.forward(&self.weights, x)?;
@@ -60,11 +65,9 @@ impl SequentialModel {
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let mut file = std::fs::File::create(path)?;
 
-        // 0. Write Header
         file.write_all(&MAGIC_NUMBER)?;
         write_u32(&mut file, VERSION)?;
 
-        // 1. Write blueprint metadata
         write_u32(&mut file, self.blueprint.weights_size as u32)?;
         write_u32(&mut file, self.blueprint.a_size as u32)?;
         write_u32(&mut file, self.blueprint.max_dim as u32)?;
@@ -84,14 +87,13 @@ impl SequentialModel {
 
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut file = std::fs::File::open(path)?;
-        
-        // 0. Verify Header
+
         let mut magic = [0u8; 4];
         file.read_exact(&mut magic)?;
         if magic != MAGIC_NUMBER {
             return Err(ModelError::MagicNumberMismatch);
         }
-        
+
         let version = read_u32(&mut file)?;
         if version != VERSION {
             return Err(ModelError::UnsupportedVersion(version));

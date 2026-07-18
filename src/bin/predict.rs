@@ -4,10 +4,10 @@ use nn_rust::{metrics, sequential::SequentialModel};
 fn run_model(model_name: &str, display_name: &str, data: &[f32], true_label: usize) {
     println!("\n=== {display_name} Model ===");
 
-    let model = SequentialModel::load(model_name).unwrap();
+    let model = SequentialModel::load(model_name).expect("Failed to load model");
 
-    let prediction = model.predict(data).unwrap();
-    let predicted = metrics::argmax(&prediction, 1).unwrap()[0];
+    let prediction = model.predict(data).expect("Failed to run prediction");
+    let predicted = metrics::argmax(&prediction, 1).expect("Failed to get argmax")[0];
 
     println!("Predicted: {predicted} | Actual: {true_label}");
     println!("Class Probabilities:");
@@ -36,10 +36,20 @@ fn main() {
             let px = f32::from(img.get_pixel(x, y)[0]);
             let inv = (255.0 - px) / 255.0;
             data[(y * 28 + x) as usize] = inv;
+
+            let v = data[(y * 28 + x) as usize];
+            let ch = match v {
+                v if v > 0.75 => '#',
+                v if v > 0.5 => '+',
+                v if v > 0.25 => '.',
+                _ => ' ',
+            };
+            print!("{ch}");
         }
+        println!();
     }
 
-    let true_label = metrics::argmax(&label, 1).unwrap()[0];
+    let true_label = metrics::argmax(&label, 1).expect("Failed to get argmax")[0];
 
     run_model("relu_model", "ReLU", &data, true_label);
     run_model("sigmoid_model", "Sigmoid", &data, true_label);
