@@ -1,3 +1,4 @@
+use rand::{Rng, RngExt};
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
@@ -127,8 +128,11 @@ impl MnistDataset {
         Ok(Self::read_u32(reader)? as usize)
     }
 
-    pub fn train_batches(&mut self) -> impl Iterator<Item = (&'_ [u8], &'_ [f32])> {
-        self.shuffle();
+    pub fn train_batches<R: Rng + ?Sized>(
+        &mut self,
+        rng: &mut R,
+    ) -> impl Iterator<Item = (&'_ [u8], &'_ [f32])> {
+        self.shuffle(rng);
         let x_chunk = self.batch_size * self.train_x_cols;
         let y_chunk = self.batch_size * self.train_y_cols;
 
@@ -149,18 +153,19 @@ impl MnistDataset {
     }
 
     pub fn convert_to_px(raw_x: &[u8], x: &mut [f32]) {
+        const INV_255: f32 = 1.0 / 255.0;
         for (out, &val) in x.iter_mut().zip(raw_x.iter()) {
-            *out = val as f32 / 255.0;
+            *out = (val as f32) * INV_255;
         }
     }
 
-    pub fn shuffle(&mut self) {
+    pub fn shuffle<R: Rng + ?Sized>(&mut self, rng: &mut R) {
         // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
         let tx_ptr = self.train_x.as_mut_ptr();
         let ty_ptr = self.train_y.as_mut_ptr();
 
         for i in 0..(self.n_train_imgs - 1) {
-            let j = rand::random_range(i..self.n_train_imgs);
+            let j = rng.random_range(i..self.n_train_imgs);
 
             // if row was selected to be swapped
             if i != j {

@@ -95,11 +95,6 @@ impl<'a> ExecutionSession<'a> {
                     let weights_slice = &weights.values[*w_start..*w_end];
                     let bias_slice = &weights.values[*b_start..*b_end];
 
-                    // output = bias, broadcast across batch_size rows
-                    for row in output_slice.chunks_mut(*output_dim) {
-                        row.copy_from_slice(bias_slice);
-                    }
-
                     gemm::gemm_f32(
                         Transpose::None,
                         Transpose::Ordinary,
@@ -111,7 +106,17 @@ impl<'a> ExecutionSession<'a> {
                         *input_dim,
                         weights_slice,
                         *input_dim,
+                        0.0,
+                        output_slice,
+                        *output_dim,
+                    );
+
+                    gemm::sger_f32(
+                        self.batch_size,
+                        *output_dim,
                         1.0,
+                        &self.ones,
+                        bias_slice,
                         output_slice,
                         *output_dim,
                     );

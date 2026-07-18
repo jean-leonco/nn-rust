@@ -1,4 +1,4 @@
-use cblas::{Layout, sgemm, sgemv};
+use cblas::{Layout, sgemm, sgemv, sger};
 
 pub(crate) fn gemm_f32(
     trans_a: cblas::Transpose,
@@ -60,6 +60,31 @@ pub(crate) fn sgemv_f32(
             beta,
             y,
             1,
+        );
+    }
+}
+
+pub(crate) fn sger_f32(
+    m: usize,
+    n: usize,
+    alpha: f32,
+    x: &[f32],
+    y: &[f32],
+    a: &mut [f32],
+    lda: usize,
+) {
+    unsafe {
+        sger(
+            Layout::RowMajor,
+            m as i32,
+            n as i32,
+            alpha,
+            x,
+            1,
+            y,
+            1,
+            a,
+            lda as i32,
         );
     }
 }

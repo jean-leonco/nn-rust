@@ -19,6 +19,8 @@ fn train_model(
 ) {
     println!("\n=== {display_name} Model ===");
 
+    let mut train_rng = rng.clone();
+
     let mut session = ExecutionSession::new(&model.blueprint, rng, batch_size);
 
     let sgd = SgdOptimizer::new(learning_rate);
@@ -26,13 +28,11 @@ fn train_model(
     let mut x = vec![0.0f32; batch_size * 784];
 
     for epoch in 0..epochs {
-        dataset.shuffle();
-
         let mut e_loss = 0.0;
         let mut e_correct = 0.0;
         let mut e_samples = 0;
 
-        for (x_raw, y) in dataset.train_batches() {
+        for (x_raw, y) in dataset.train_batches(&mut train_rng) {
             MnistDataset::convert_to_px(x_raw, &mut x);
             let predictions = session.forward(&model.weights, &x).unwrap();
             e_samples += batch_size;
