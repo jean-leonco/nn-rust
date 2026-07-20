@@ -4,6 +4,8 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 use thiserror::Error;
 
+use crate::core::serialization;
+
 const LABELS_MAGIC_NUMBER: u32 = 2049;
 const IMAGES_MAGIC_NUMBER: u32 = 2051;
 const NUM_OF_CLASSES: usize = 10;
@@ -12,6 +14,9 @@ const NUM_OF_CLASSES: usize = 10;
 pub enum MnistDatasetError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Decoding error: {0}")]
+    DecodingError(#[from] serialization::SerializationError),
 
     #[error("Magic number mismatch, expected {0}, got {1}")]
     MagicNumber(u32, u32),
@@ -63,12 +68,12 @@ impl MnistDataset {
         let f = File::open(path)?;
         let mut reader = BufReader::new(f);
 
-        let magic = Self::read_u32(&mut reader)?;
+        let magic = serialization::read_u32_be(&mut reader)?;
         if magic != LABELS_MAGIC_NUMBER {
             return Err(MnistDatasetError::MagicNumber(LABELS_MAGIC_NUMBER, magic));
         }
 
-        let count = Self::read_usize(&mut reader)?;
+        let count = serialization::read_u32_be(&mut reader)? as usize;
         let mut data = vec![0u8; count];
         reader.read_exact(&mut data)?;
 
@@ -90,14 +95,14 @@ impl MnistDataset {
         let f = File::open(path)?;
         let mut reader = BufReader::new(f);
 
-        let magic = Self::read_u32(&mut reader)?;
+        let magic = serialization::read_u32_be(&mut reader)?;
         if magic != IMAGES_MAGIC_NUMBER {
             return Err(MnistDatasetError::MagicNumber(IMAGES_MAGIC_NUMBER, magic));
         }
 
-        let count = Self::read_usize(&mut reader)?;
-        let rows = Self::read_usize(&mut reader)?;
-        let cols = Self::read_usize(&mut reader)?;
+        let count = serialization::read_u32_be(&mut reader)? as usize;
+        let rows = serialization::read_u32_be(&mut reader)? as usize;
+        let cols = serialization::read_u32_be(&mut reader)? as usize;
 
         let size = count
             .checked_mul(rows)
@@ -116,16 +121,6 @@ impl MnistDataset {
         }
 
         Ok((images, count))
-    }
-
-    fn read_u32(reader: &mut impl Read) -> Result<u32, MnistDatasetError> {
-        let mut buf = [0u8; 4];
-        reader.read_exact(&mut buf)?;
-        Ok(u32::from_be_bytes(buf))
-    }
-
-    fn read_usize(reader: &mut impl Read) -> Result<usize, MnistDatasetError> {
-        Ok(Self::read_u32(reader)? as usize)
     }
 
     pub fn train_batches<R: Rng + ?Sized>(

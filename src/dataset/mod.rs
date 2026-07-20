@@ -1,1 +1,1 @@
-pub mod mnist_dataset;
+pub mod mnist;

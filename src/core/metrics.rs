@@ -5,8 +5,8 @@ pub enum MetricsError {
     #[error("Metrics error: empty row")]
     EmptyRow,
 }
-pub type Result<T> = std::result::Result<T, MetricsError>;
 
+/// Computes the cross-entropy loss between predictions and target values.
 pub fn cross_entropy_loss(predictions: &[f32], targets: &[f32], n_rows: usize) -> f32 {
     let mut loss = 0.0;
     for (p, t) in predictions.iter().zip(targets.iter()) {
@@ -15,7 +15,8 @@ pub fn cross_entropy_loss(predictions: &[f32], targets: &[f32], n_rows: usize) -
     loss / n_rows as f32
 }
 
-pub fn accuracy(predictions: &[f32], targets: &[f32], n_rows: usize) -> Result<f32> {
+/// Computes the accuracy of predictions compared to target values.
+pub fn accuracy(predictions: &[f32], targets: &[f32], n_rows: usize) -> Result<f32, MetricsError> {
     let mut matches = 0.0;
     let cols = predictions.len() / n_rows;
 
@@ -30,7 +31,8 @@ pub fn accuracy(predictions: &[f32], targets: &[f32], n_rows: usize) -> Result<f
     Ok(matches / n_rows as f32)
 }
 
-fn argmax_row(row: &[f32]) -> Result<usize> {
+/// Finds the index of the maximum value in a row.
+fn argmax_row(row: &[f32]) -> Result<usize, MetricsError> {
     row.iter()
         .enumerate()
         .max_by(|(_, x), (_, y)| x.total_cmp(y))
@@ -38,7 +40,8 @@ fn argmax_row(row: &[f32]) -> Result<usize> {
         .ok_or(MetricsError::EmptyRow)
 }
 
-pub fn argmax(predictions: &[f32], n_rows: usize) -> Result<Vec<usize>> {
+/// Finds the index of the maximum value in each row of a matrix.
+pub fn argmax(predictions: &[f32], n_rows: usize) -> Result<Vec<usize>, MetricsError> {
     let cols = predictions.len() / n_rows;
 
     predictions.chunks_exact(cols).map(argmax_row).collect()

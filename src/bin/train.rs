@@ -1,11 +1,14 @@
 use nn_rust::{
-    dataset::mnist_dataset::MnistDataset,
-    execution_session::ExecutionSession,
-    metrics::{accuracy, cross_entropy_loss},
-    optimizer::SgdOptimizer,
-    sequential::{Initializer, Sequential, SequentialModel},
+    core::TrainMetrics,
+    dataset::mnist::MnistDataset,
+    model::{SequentialModel, Session},
+    ops::Initialization,
+    optim::sgd::SgdOptimizer,
 };
 use rand::{SeedableRng, rngs::SmallRng};
+
+const BATCH_SIZE: usize = 128;
+const INPUT_SIZE: usize = 784;
 
 fn train_model(
     model_name: &str,
@@ -14,84 +17,66 @@ fn train_model(
     rng: &mut SmallRng,
     dataset: &mut MnistDataset,
     epochs: usize,
-    batch_size: usize,
     learning_rate: f32,
 ) {
     println!("\n=== {display_name} Model ===");
 
-    let mut train_rng = rng.clone();
+    let mut session = Session::new(&model.graph, BATCH_SIZE);
+    let mut dataset_rng = rng.clone();
+    let optimizer = SgdOptimizer::new(learning_rate);
 
-    let mut session = ExecutionSession::new(&model.blueprint, rng, batch_size);
-
-    let sgd = SgdOptimizer::new(learning_rate);
-
-    let mut x = vec![0.0f32; batch_size * 784];
+    let mut x = vec![0.0f32; BATCH_SIZE * INPUT_SIZE];
 
     for epoch in 0..epochs {
-        let mut e_loss = 0.0;
-        let mut e_correct = 0.0;
-        let mut e_samples = 0;
+        let mut train_metrics = TrainMetrics::new(BATCH_SIZE);
+        for (x_batch, y) in dataset.train_batches(&mut dataset_rng) {
+            MnistDataset::convert_to_px(x_batch, &mut x);
 
-        for (x_raw, y) in dataset.train_batches(&mut train_rng) {
-            MnistDataset::convert_to_px(x_raw, &mut x);
-            let predictions = session
-                .forward(&model.weights, &x)
-                .expect("Failed to run forward");
-            e_samples += batch_size;
-            e_loss += cross_entropy_loss(predictions, y, batch_size) * batch_size as f32;
-            e_correct += accuracy(predictions, y, batch_size).expect("Failed to get accuracy")
-                * batch_size as f32;
+            let prediction = session
+                .forward(&mut model.params, &x, rng)
+                .expect("Failed to forward");
+            train_metrics.update(prediction, y);
 
-            let gradients = session.backward(&model.weights, &x, y);
-            sgd.step(&mut model.weights, gradients);
+            let gradients = session.backward(&model.params, &x, y);
+            optimizer.step(&mut model.params, gradients);
         }
 
-        println!(
-            "Epoch {}/{epochs} - Loss: {:.4}, Accuracy: {:.4}",
-            epoch + 1,
-            e_loss / e_samples as f32,
-            e_correct / e_samples as f32
-        );
+        println!("Epoch {}/{epochs}: {}", epoch, train_metrics);
     }
 
-    let mut val_loss = 0.0;
-    let mut val_correct = 0.0;
-    let mut val_samples = 0;
-    for (x_raw, y) in dataset.validation_batches() {
-        MnistDataset::convert_to_px(x_raw, &mut x);
-        let predictions = session
-            .forward(&model.weights, &x)
-            .expect("Failed to run forward");
-        val_samples += batch_size;
-        val_loss += cross_entropy_loss(predictions, y, batch_size) * batch_size as f32;
-        val_correct += accuracy(predictions, y, batch_size).expect("Failed to get accuracy")
-            * batch_size as f32;
+    let mut validation_metrics = TrainMetrics::new(BATCH_SIZE);
+
+    for (x_validation, y) in dataset.validation_batches() {
+        MnistDataset::convert_to_px(x_validation, &mut x);
+        let prediction = session.infer(&mut model.params, &x);
+        validation_metrics.update(prediction, y);
     }
-    println!(
-        "Val Loss: {:.4}, Val Acc: {:.4}",
-        val_loss / val_samples as f32,
-        val_correct / val_samples as f32
-    );
+
+    println!("Validation: {}", validation_metrics);
+
     model.save(model_name).expect("Failed to save model");
 }
 
 fn main() {
-    let batch_size = 128;
-    let mut dataset = MnistDataset::load(batch_size).expect("Failed to load MNIST dataset");
+    let mut dataset = MnistDataset::load(BATCH_SIZE).expect("Failed to load MNIST dataset");
     let mut rng = SmallRng::seed_from_u64(42);
 
-    let mut relu_model = Sequential::builder()
+    let mut relu_model = SequentialModel::builder()
         .input(784)
-        .dense(128, Initializer::He)
+        .dense(128, Initialization::He)
         .relu()
         .dropout(0.2)
-        .dense(64, Initializer::He)
+        .unwrap()
+        .dense(64, Initialization::He)
         .relu()
         .dropout(0.2)
-        .dense(10, Initializer::He)
-        .softmax_cross_entropy()
-        .build(&mut rng)
-        .expect("Failed to build model");
+        .unwrap()
+        .dense(10, Initialization::He)
+        .softmax()
+        .build();
+    relu_model
+        .initialize_params(&mut rng)
+        .expect("Failed to initialize parameters");
 
     train_model(
         "relu_model",
@@ -100,22 +85,25 @@ fn main() {
         &mut rng,
         &mut dataset,
         50,
-        batch_size,
         0.05,
     );
 
-    let mut sigmoid_model = Sequential::builder()
+    let mut sigmoid_model = SequentialModel::builder()
         .input(784)
-        .dense(256, Initializer::Xavier)
+        .dense(256, Initialization::Xavier)
         .sigmoid()
         .dropout(0.2)
-        .dense(64, Initializer::Xavier)
+        .unwrap()
+        .dense(64, Initialization::Xavier)
         .sigmoid()
         .dropout(0.2)
-        .dense(10, Initializer::Xavier)
-        .softmax_cross_entropy()
-        .build(&mut rng)
-        .expect("Failed to build model");
+        .unwrap()
+        .dense(10, Initialization::Xavier)
+        .softmax()
+        .build();
+    sigmoid_model
+        .initialize_params(&mut rng)
+        .expect("Failed to initialize parameters");
 
     train_model(
         "sigmoid_model",
@@ -124,7 +112,6 @@ fn main() {
         &mut rng,
         &mut dataset,
         50,
-        batch_size,
         0.2,
     );
 }

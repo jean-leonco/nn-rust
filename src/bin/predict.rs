@@ -1,12 +1,12 @@
 use image::{DynamicImage, GenericImageView, imageops::FilterType};
-use nn_rust::{metrics, sequential::SequentialModel};
+use nn_rust::{core::metrics, model::SequentialModel};
 
 fn run_model(model_name: &str, display_name: &str, data: &[f32], true_label: usize) {
     println!("\n=== {display_name} Model ===");
 
-    let model = SequentialModel::load(model_name).expect("Failed to load model");
+    let mut model = SequentialModel::load(model_name).expect("Failed to load model");
 
-    let prediction = model.predict(data).expect("Failed to run prediction");
+    let prediction = model.predict(data);
     let predicted = metrics::argmax(&prediction, 1).expect("Failed to get argmax")[0];
 
     println!("Predicted: {predicted} | Actual: {true_label}");

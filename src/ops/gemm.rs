@@ -1,6 +1,6 @@
-use cblas::{Layout, sgemm, sgemv, sger};
-
-pub(crate) fn gemm_f32(
+/// Performs a Single-precision General Matrix Multiply.
+/// [LAPACK Reference](https://www.netlib.org/lapack/explore-html/dd/d09/group__gemm_ga8cad871c590600454d22564eff4fed6b.html)
+pub(crate) fn sgemm(
     trans_a: cblas::Transpose,
     trans_b: cblas::Transpose,
     m: usize,
@@ -16,8 +16,8 @@ pub(crate) fn gemm_f32(
     ldc: usize,
 ) {
     unsafe {
-        sgemm(
-            Layout::RowMajor,
+        cblas::sgemm(
+            cblas::Layout::RowMajor,
             trans_a,
             trans_b,
             m as i32,
@@ -35,7 +35,9 @@ pub(crate) fn gemm_f32(
     }
 }
 
-pub(crate) fn sgemv_f32(
+/// Performs a Single-precision General Matrix-Vector multiplication.
+/// [LAPACK Reference](https://www.netlib.org/lapack/explore-html/d7/dda/group__gemv_ga0d35d880b663ad18204bb23bd186e380.html)
+pub(crate) fn sgemv(
     trans: cblas::Transpose,
     m: usize,
     n: usize,
@@ -47,8 +49,8 @@ pub(crate) fn sgemv_f32(
     y: &mut [f32],
 ) {
     unsafe {
-        sgemv(
-            Layout::RowMajor,
+        cblas::sgemv(
+            cblas::Layout::RowMajor,
             trans,
             m as i32,
             n as i32,
@@ -64,7 +66,9 @@ pub(crate) fn sgemv_f32(
     }
 }
 
-pub(crate) fn sger_f32(
+/// Performs a Single-precision rank-1 update of a matrix.
+/// [LAPACK Reference](https://www.netlib.org/lapack/explore-html/d8/d75/group__ger_ga95baec6bb0a84393d7bc67212b566ab0.html#ga95baec6bb0a84393d7bc67212b566ab0)
+pub(crate) fn sger(
     m: usize,
     n: usize,
     alpha: f32,
@@ -74,8 +78,8 @@ pub(crate) fn sger_f32(
     lda: usize,
 ) {
     unsafe {
-        sger(
-            Layout::RowMajor,
+        cblas::sger(
+            cblas::Layout::RowMajor,
             m as i32,
             n as i32,
             alpha,
