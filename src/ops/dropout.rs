@@ -13,6 +13,8 @@ pub struct DropoutMeta {
     /// The inverse of the survival probability (1 / p).
     /// This ensures remaining neurons are scaled up to compensate for the dropped out ones.
     pub inv_p: f32,
+
+    pub inv_p_simd: f32x8,
     /// The relative offsets where current layer activations are stored.
     /// Must be multiplied by the batch size to get the absolute offset.
     pub(crate) a_span: Range<usize>,
@@ -47,6 +49,7 @@ impl DropoutMeta {
         Ok(Self {
             p: survival_prob,
             inv_p: 1.0 / (survival_prob),
+            inv_p_simd: f32x8::splat(1.0 / (survival_prob)),
             a_span,
             m_span,
         })
@@ -69,6 +72,25 @@ impl DropoutMeta {
     }
 }
 
+/// Applies dropout to one 8-wide lane. Handles both full-width (len == 8) and ragged tail (len < 8) slices.
+#[inline]
+fn apply_dropout_lane(activation_lane: &mut [f32], mask_lane: &mut [u8], mask: u8x8, inv_p: f32x8) {
+    assert_eq!(activation_lane.len(), mask_lane.len());
+
+    let survival_mask = mask.cast::<u32>().cast::<f32>();
+
+    let scaled = if activation_lane.len() == cbrng::LANE_SIZE {
+        f32x8::from_slice(activation_lane) * survival_mask * inv_p
+    } else {
+        let mut scratch = [0.0f32; cbrng::LANE_SIZE];
+        scratch[..activation_lane.len()].copy_from_slice(activation_lane);
+        f32x8::from_slice(&scratch) * survival_mask * inv_p
+    };
+
+    activation_lane.copy_from_slice(&scaled.to_array()[..activation_lane.len()]);
+    mask_lane.copy_from_slice(&mask.to_array()[..mask_lane.len()]);
+}
+
 /// Applies the dropout to given activations and mask in-place.
 ///
 /// # Arguments
@@ -83,22 +105,6 @@ pub fn forward(
     step: usize,
     seed: [u32x8; 2],
 ) {
-    fill_mask(meta, masks, step, seed);
-
-    for (val, mask) in activations.iter_mut().zip(masks) {
-        *val *= *mask as f32 * meta.inv_p;
-    }
-}
-
-/// Fills the mask slice with random survival probabilities.
-///
-/// # Arguments
-///
-/// * `meta` - The dropout metadata.
-/// * `masks` - The slice of mask data to fill.
-/// * `step` - The current step in the training process.
-/// * `seed` - The random seed to use for filling the mask.
-pub fn fill_mask(meta: &DropoutMeta, masks: &mut [u8], step: usize, seed: [u32x8; 2]) {
     let mut counters = [
         u32x8::splat(0),
         u32x8::splat(meta.a_span.start as u32),
@@ -106,12 +112,41 @@ pub fn fill_mask(meta: &DropoutMeta, masks: &mut [u8], step: usize, seed: [u32x8
         u32x8::splat(0 as u32),
     ];
 
-    for (i, mask_chunk) in masks.chunks_mut(cbrng::U8_UNITS_PER_CALL).enumerate() {
-        counters[0] = u32x8::splat((i as u32) * 8) + cbrng::LANE_IOTA;
+    let mut block_idx = 0u32;
+    let mut mask_blocks = masks.chunks_exact_mut(cbrng::BERNOULLI_BATCH_SIZE);
+    let mut activation_blocks = activations.chunks_exact_mut(cbrng::BERNOULLI_BATCH_SIZE);
 
-        let mask = cbrng::bernoulli(counters, seed, meta.p);
-        for (word, dest) in mask.iter().zip(mask_chunk.chunks_mut(8)) {
-            dest.copy_from_slice(&word.to_array()[..dest.len()]);
+    for (mask_block, activation_block) in (&mut mask_blocks).zip(&mut activation_blocks) {
+        counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
+        let bernoulli_mask = cbrng::bernoulli(counters, seed, meta.p);
+
+        for ((activation_lane, mask_lane), mask) in activation_block
+            .chunks_exact_mut(cbrng::LANE_SIZE)
+            .zip(mask_block.chunks_exact_mut(cbrng::LANE_SIZE))
+            .zip(bernoulli_mask)
+        {
+            apply_dropout_lane(activation_lane, mask_lane, mask, meta.inv_p_simd);
+        }
+        block_idx += 1;
+    }
+
+    let remaining_masks = mask_blocks.into_remainder();
+    let remaining_activations = activation_blocks.into_remainder();
+
+    if !remaining_activations.is_empty() {
+        counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
+        let bernoulli_mask = cbrng::bernoulli(counters, seed, meta.p);
+
+        let mut activation_lanes = remaining_activations.chunks_mut(8);
+        let mut mask_lanes = remaining_masks.chunks_mut(8);
+
+        for mask in bernoulli_mask {
+            let (Some(activation_lane), Some(mask_lane)) =
+                (activation_lanes.next(), mask_lanes.next())
+            else {
+                break;
+            };
+            apply_dropout_lane(activation_lane, mask_lane, mask, meta.inv_p_simd);
         }
     }
 }

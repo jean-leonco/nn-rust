@@ -6,7 +6,9 @@ const MULTIPLIER_1: u64 = 0xCD9E8D57;
 const WEYL_0: u32 = 0x9E3779B9;
 const WEYL_1: u32 = 0xBB67AE85;
 /// The number of output values generated per bernoulli call.
-pub const U8_UNITS_PER_CALL: usize = 32;
+pub const BERNOULLI_BATCH_SIZE: usize = 32;
+/// The lane size used for generating random numbers.
+pub const LANE_SIZE: usize = 8;
 /// The lane iota used for generating random numbers.
 pub const LANE_IOTA: u32x8 = u32x8::from_array([0, 1, 2, 3, 4, 5, 6, 7]);
 
