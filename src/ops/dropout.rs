@@ -103,7 +103,7 @@ pub fn forward(
     activations: &mut [f32],
     masks: &mut [u8],
     step: usize,
-    seed: [u32x8; 2],
+    key_schedule: &cbrng::KeySchedule,
 ) {
     let mut counters = [
         u32x8::splat(0),
@@ -118,7 +118,7 @@ pub fn forward(
 
     for (mask_block, activation_block) in (&mut mask_blocks).zip(&mut activation_blocks) {
         counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
-        let bernoulli_mask = cbrng::bernoulli(counters, seed, meta.p);
+        let bernoulli_mask = cbrng::bernoulli(counters, key_schedule, meta.p);
 
         for ((activation_lane, mask_lane), mask) in activation_block
             .chunks_exact_mut(cbrng::LANE_SIZE)
@@ -135,7 +135,7 @@ pub fn forward(
 
     if !remaining_activations.is_empty() {
         counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
-        let bernoulli_mask = cbrng::bernoulli(counters, seed, meta.p);
+        let bernoulli_mask = cbrng::bernoulli(counters, key_schedule, meta.p);
 
         let mut activation_lanes = remaining_activations.chunks_mut(8);
         let mut mask_lanes = remaining_masks.chunks_mut(8);
@@ -192,8 +192,9 @@ mod tests {
         let mut mask = vec![0; 4];
         let step = 0;
         let seed = [u32x8::splat(0); 2];
+        let key_schedule = cbrng::build_key_schedule(seed);
 
-        forward(&mut meta, &mut activations, &mut mask, step, seed);
+        forward(&mut meta, &mut activations, &mut mask, step, &key_schedule);
 
         assert_eq!(mask, vec![0, 0, 0, 1]);
         assert_eq!(activations, vec![0.0, 0.0, 0.0, 8.0]);
@@ -219,11 +220,12 @@ mod tests {
         let mut mask = vec![0; 4];
         let step = 0;
         let seed = [u32x8::splat(0); 2];
+        let key_schedule = cbrng::build_key_schedule(seed);
 
         let mut dz = vec![0.0; 4];
         let da = vec![1.5, 2.5, 3.5, 4.5];
 
-        forward(&mut meta, &mut activations, &mut mask, step, seed);
+        forward(&mut meta, &mut activations, &mut mask, step, &key_schedule);
         backward(&meta, &mut dz, &da, &mask);
 
         assert_eq!(mask, vec![0, 0, 0, 1]);

@@ -1,6 +1,7 @@
 use std::simd::prelude::*;
 
 use crate::{
+    core::cbrng,
     model::DefinitionGraph,
     ops::{Op, dense, dropout, relu, sigmoid, softmax},
 };
@@ -35,8 +36,8 @@ pub struct Session<'a> {
     /// Current step. Advanced each time `forward` is called.
     step: usize,
 
-    /// Execution seed.
-    seed: [u32x8; 2],
+    /// Philox key schedule.
+    key_schedule: cbrng::KeySchedule,
 }
 
 impl<'a> Session<'a> {
@@ -62,7 +63,11 @@ impl<'a> Session<'a> {
                 vec![0.0; batch_size * graph.max_dimension],
             ),
             ones: vec![1.0f32; batch_size],
-            seed: session_seed,
+            key_schedule: if graph.ops.iter().any(|op| matches!(op, Op::Dropout(_))) {
+                cbrng::build_key_schedule(session_seed)
+            } else {
+                cbrng::EMPTY_KEY_SCHEDULE
+            },
         }
     }
 
@@ -119,7 +124,7 @@ impl<'a> Session<'a> {
                         &mut self.activations[meta.activation_offsets(self.batch_size)];
                     let masks = &mut self.masks[meta.mask_offsets(self.batch_size)];
 
-                    dropout::forward(meta, activations, masks, self.step, self.seed);
+                    dropout::forward(meta, activations, masks, self.step, &self.key_schedule);
                 }
                 Op::Relu(meta) => {
                     let activations =
