@@ -1,4 +1,5 @@
 use core::ops::Range;
+use std::simd::prelude::*;
 
 /// Metadata for the Softmax Cross-entropy layer.
 #[derive(Debug)]
@@ -43,14 +44,38 @@ impl SoftmaxMeta {
 /// * `activations` - The slice to apply the Softmax loss function to.
 pub fn forward(meta: &SoftmaxMeta, activations: &mut [f32]) {
     for row in &mut activations.chunks_mut(meta.output_size) {
-        let max = row.iter().fold(f32::NEG_INFINITY, |a, b| a.max(*b));
+        let mut max_simd = f32x8::splat(f32::NEG_INFINITY);
+        let mut chunks = row.chunks_exact(8);
+
+        for chunk in chunks.by_ref() {
+            max_simd = max_simd.simd_max(f32x8::from_slice(chunk));
+        }
+
+        let mut max = max_simd.reduce_max();
+        for &val in chunks.remainder() {
+            max = max.max(val);
+        }
+
         for val in row.iter_mut() {
             *val = (*val - max).exp();
         }
 
-        let sum: f32 = row.iter().sum();
+        let mut sum_simd = f32x8::splat(0.0);
+        let mut chunks = row.chunks_exact(8);
+
+        for chunk in chunks.by_ref() {
+            sum_simd += f32x8::from_slice(chunk);
+        }
+
+        let mut total = sum_simd.reduce_sum();
+
+        for val in chunks.remainder() {
+            total += *val;
+        }
+
+        let inv_sum = 1.0 / total;
         for val in row.iter_mut() {
-            *val /= sum;
+            *val *= inv_sum;
         }
     }
 }
