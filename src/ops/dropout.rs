@@ -196,8 +196,8 @@ mod tests {
 
         forward(&mut meta, &mut activations, &mut mask, step, &key_schedule);
 
-        assert_eq!(mask, vec![0, 0, 0, 1]);
-        assert_eq!(activations, vec![0.0, 0.0, 0.0, 8.0]);
+        assert_eq!(mask, vec![1, 0, 1, 0]);
+        assert_eq!(activations, vec![2.0, 0.0, 6.0, 0.0]);
     }
 
     #[test]
@@ -205,11 +205,11 @@ mod tests {
         let meta = DropoutMeta::new(0.5, 0..4, 0..4).unwrap();
         let mut dz = vec![0.0; 4];
         let da = vec![1.5, 2.5, 3.5, 4.5];
-        let mask = vec![0, 0, 0, 1];
+        let mask = vec![1, 0, 1, 0];
 
         backward(&meta, &mut dz, &da, &mask);
 
-        assert_eq!(dz, vec![0.0, 0.0, 0.0, 9.0]);
+        assert_eq!(dz, vec![3.0, 0.0, 7.0, 0.0]);
     }
 
     #[test]
@@ -228,8 +228,8 @@ mod tests {
         forward(&mut meta, &mut activations, &mut mask, step, &key_schedule);
         backward(&meta, &mut dz, &da, &mask);
 
-        assert_eq!(mask, vec![0, 0, 0, 1]);
-        assert_eq!(activations, vec![0.0, 0.0, 0.0, 8.0]);
-        assert_eq!(dz, vec![0.0, 0.0, 0.0, 9.0]);
+        assert_eq!(mask, vec![1, 0, 1, 0]);
+        assert_eq!(activations, vec![2.0, 0.0, 6.0, 0.0]);
+        assert_eq!(dz, vec![3.0, 0.0, 7.0, 0.0]);
     }
 }

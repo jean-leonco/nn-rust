@@ -65,13 +65,15 @@ pub fn philox(counters: [u32x8; 4], key_schedule: &KeySchedule) -> [u32x8; 4] {
         let prod_0: u64x8 = result[0].cast::<u64>() * mult_0;
         let prod_1: u64x8 = result[2].cast::<u64>() * mult_1;
 
-        let h_0 = (prod_0 >> 32).cast::<u32>() ^ result[1] ^ key_schedule[r][0];
-        let l_0 = prod_0.cast::<u32>();
+        let hi0 = (prod_0 >> 32).cast::<u32>();
+        let lo0 = prod_0.cast::<u32>();
+        let hi1 = (prod_1 >> 32).cast::<u32>();
+        let lo1 = prod_1.cast::<u32>();
 
-        let h_1 = (prod_1 >> 32).cast::<u32>() ^ result[3] ^ key_schedule[r][1];
-        let l_1 = prod_1.cast::<u32>();
+        let h0 = hi1 ^ result[1] ^ key_schedule[r][0];
+        let h1 = hi0 ^ result[3] ^ key_schedule[r][1];
 
-        result = [h_1, l_1, h_0, l_0];
+        result = [h0, lo1, h1, lo0];
     }
 
     result
@@ -114,6 +116,24 @@ mod tests {
 
         assert_eq!(result1, result2);
         assert_ne!(result1[0], counters[0]);
+    }
+
+    #[test]
+    fn test_philox_avalanche() {
+        let seed = [u32x8::splat(0); 2];
+        let key_schedule = build_key_schedule(seed);
+
+        let counters1 = [u32x8::splat(0); 4];
+        let mut counters2 = [u32x8::splat(0); 4];
+        counters2[0][0] = 1;
+
+        let result1 = philox(counters1, &key_schedule);
+        let result2 = philox(counters2, &key_schedule);
+
+        assert_ne!(result1[0][0], result2[0][0]);
+        assert_ne!(result1[1][0], result2[1][0]);
+        assert_ne!(result1[2][0], result2[2][0]);
+        assert_ne!(result1[3][0], result2[3][0]);
     }
 
     #[test]

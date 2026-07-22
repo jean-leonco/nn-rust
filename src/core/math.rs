@@ -28,3 +28,47 @@ pub fn schraudolph(x: f32) -> f32 {
     let bits = (clamped * C1 + C2).round() as u32;
     f32::from_bits(bits)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_schraudolph_scalar_accuracy() {
+        let test_values = [0.0, -0.5, -1.0, -2.5, -10.0, -50.0, -85.0];
+        for &x in &test_values {
+            let approx = schraudolph(x);
+            let exact = x.exp();
+            let diff = (approx - exact).abs();
+            assert!(
+                diff < 0.05,
+                "x={}, approx={}, exact={}, diff={}",
+                x,
+                approx,
+                exact,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn test_schraudolph_simd_accuracy() {
+        let test_values = [0.0, -0.5, -1.0, -2.5, -10.0, -50.0, -85.0, -87.0];
+        let x_simd = f32x8::from_array(test_values);
+        let approx_simd = schraudolph_simd(x_simd);
+
+        for (i, &x) in test_values.iter().enumerate() {
+            let approx = approx_simd[i];
+            let exact = x.exp();
+            let diff = (approx - exact).abs();
+            assert!(
+                diff < 0.05,
+                "lane {}, x={}, approx={}, exact={}",
+                i,
+                x,
+                approx,
+                exact
+            );
+        }
+    }
+}
