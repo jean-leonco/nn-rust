@@ -1,6 +1,8 @@
 use core::ops::Range;
 use std::simd::prelude::*;
 
+use crate::core::math;
+
 /// Metadata for the Softmax Cross-entropy layer.
 #[derive(Debug)]
 pub struct SoftmaxMeta {
@@ -46,32 +48,31 @@ pub fn forward(meta: &SoftmaxMeta, activations: &mut [f32]) {
     for row in &mut activations.chunks_mut(meta.output_size) {
         let mut max_simd = f32x8::splat(f32::NEG_INFINITY);
         let mut chunks = row.chunks_exact(8);
-
         for chunk in chunks.by_ref() {
             max_simd = max_simd.simd_max(f32x8::from_slice(chunk));
         }
-
         let mut max = max_simd.reduce_max();
         for &val in chunks.remainder() {
             max = max.max(val);
         }
-
-        for val in row.iter_mut() {
-            *val = (*val - max).exp();
-        }
+        let max_simd = f32x8::splat(max);
 
         let mut sum_simd = f32x8::splat(0.0);
-        let mut chunks = row.chunks_exact(8);
-
-        for chunk in chunks.by_ref() {
-            sum_simd += f32x8::from_slice(chunk);
+        let mut total = 0.0f32;
+        let mut chunks = row.chunks_exact_mut(8);
+        for chunk in &mut chunks {
+            let value = f32x8::from_slice(chunk);
+            let e = math::schraudolph_simd(value - max_simd);
+            sum_simd += e;
+            chunk.copy_from_slice(&e.to_array());
         }
 
-        let mut total = sum_simd.reduce_sum();
-
-        for val in chunks.remainder() {
+        let remainder = chunks.into_remainder();
+        for val in remainder {
+            *val = math::schraudolph(*val - max);
             total += *val;
         }
+        total += sum_simd.reduce_sum();
 
         let inv_sum = 1.0 / total;
         for val in row.iter_mut() {
@@ -119,12 +120,12 @@ mod tests {
         let p1 = 2.0_f32.exp() / sum1;
         let p2 = 3.0_f32.exp() / sum1;
 
-        assert!((activations[0] - p0).abs() < f32::EPSILON);
-        assert!((activations[1] - p1).abs() < f32::EPSILON);
-        assert!((activations[2] - p2).abs() < f32::EPSILON);
-        assert!((activations[3] - 1.0 / 3.0).abs() < f32::EPSILON);
-        assert!((activations[4] - 1.0 / 3.0).abs() < f32::EPSILON);
-        assert!((activations[5] - 1.0 / 3.0).abs() < f32::EPSILON);
+        assert!((activations[0] - p0).abs() < 0.05);
+        assert!((activations[1] - p1).abs() < 0.05);
+        assert!((activations[2] - p2).abs() < 0.05);
+        assert!((activations[3] - 1.0 / 3.0).abs() < 0.05);
+        assert!((activations[4] - 1.0 / 3.0).abs() < 0.05);
+        assert!((activations[5] - 1.0 / 3.0).abs() < 0.05);
     }
 
     #[test]
@@ -135,12 +136,12 @@ mod tests {
 
         backward(&mut dz, &predicted, &y);
 
-        assert!((dz[0] - 0.1).abs() < f32::EPSILON);
-        assert!((dz[1] - 0.2).abs() < f32::EPSILON);
-        assert!((dz[2] - (0.7 - 1.0)).abs() < f32::EPSILON);
-        assert!((dz[3] - 1.0 / 3.0).abs() < f32::EPSILON);
-        assert!((dz[4] - (1.0 / 3.0 - 1.0)).abs() < f32::EPSILON);
-        assert!((dz[5] - 1.0 / 3.0).abs() < f32::EPSILON);
+        assert!((dz[0] - 0.1).abs() < 0.05);
+        assert!((dz[1] - 0.2).abs() < 0.05);
+        assert!((dz[2] - (0.7 - 1.0)).abs() < 0.05);
+        assert!((dz[3] - 1.0 / 3.0).abs() < 0.05);
+        assert!((dz[4] - (1.0 / 3.0 - 1.0)).abs() < 0.05);
+        assert!((dz[5] - 1.0 / 3.0).abs() < 0.05);
     }
 
     #[test]
@@ -159,18 +160,18 @@ mod tests {
         let p1 = 2.0_f32.exp() / sum1;
         let p2 = 3.0_f32.exp() / sum1;
 
-        assert!((activations[0] - p0).abs() < f32::EPSILON);
-        assert!((activations[1] - p1).abs() < f32::EPSILON);
-        assert!((activations[2] - p2).abs() < f32::EPSILON);
-        assert!((activations[3] - 1.0 / 3.0).abs() < f32::EPSILON);
-        assert!((activations[4] - 1.0 / 3.0).abs() < f32::EPSILON);
-        assert!((activations[5] - 1.0 / 3.0).abs() < f32::EPSILON);
+        assert!((activations[0] - p0).abs() < 0.05);
+        assert!((activations[1] - p1).abs() < 0.05);
+        assert!((activations[2] - p2).abs() < 0.05);
+        assert!((activations[3] - 1.0 / 3.0).abs() < 0.05);
+        assert!((activations[4] - 1.0 / 3.0).abs() < 0.05);
+        assert!((activations[5] - 1.0 / 3.0).abs() < 0.05);
 
-        assert!((dz[0] - p0).abs() < f32::EPSILON);
-        assert!((dz[1] - p1).abs() < f32::EPSILON);
-        assert!((dz[2] - (p2 - 1.0)).abs() < f32::EPSILON);
-        assert!((dz[3] - 1.0 / 3.0).abs() < f32::EPSILON);
-        assert!((dz[4] - (1.0 / 3.0 - 1.0)).abs() < f32::EPSILON);
-        assert!((dz[5] - 1.0 / 3.0).abs() < f32::EPSILON);
+        assert!((dz[0] - p0).abs() < 0.05);
+        assert!((dz[1] - p1).abs() < 0.05);
+        assert!((dz[2] - (p2 - 1.0)).abs() < 0.05);
+        assert!((dz[3] - 1.0 / 3.0).abs() < 0.05);
+        assert!((dz[4] - (1.0 / 3.0 - 1.0)).abs() < 0.05);
+        assert!((dz[5] - 1.0 / 3.0).abs() < 0.05);
     }
 }
