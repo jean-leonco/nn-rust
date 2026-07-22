@@ -41,8 +41,8 @@ pub enum OpSerializationError {
     InitializationError(#[from] InitializationError),
     #[error("Unknown execution node variant: {0}")]
     UnknownNodeVariant(u8),
-    #[error("Bernoulli error: {0}")]
-    BernoulliDistr(#[from] rand::distr::BernoulliError),
+    #[error("Dropout error: {0}")]
+    DropoutError(#[from] dropout::DropoutError),
 }
 
 impl Op {
@@ -72,10 +72,10 @@ impl Op {
             Self::Dropout(meta) => {
                 buf.push(2);
                 serialization::write_f32(&mut buf, meta.p).unwrap();
-                serialization::write_u32(&mut buf, meta.a_start as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.a_end as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.m_start as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.m_end as u32).unwrap();
+                serialization::write_u32(&mut buf, meta.a_span.start as u32).unwrap();
+                serialization::write_u32(&mut buf, meta.a_span.end as u32).unwrap();
+                serialization::write_u32(&mut buf, meta.m_span.start as u32).unwrap();
+                serialization::write_u32(&mut buf, meta.m_span.end as u32).unwrap();
             }
             Self::Relu(meta) => {
                 buf.push(3);
@@ -136,13 +136,9 @@ impl Op {
             }
             2 => {
                 let p = serialization::read_f32(reader)?;
-                let d_start = serialization::read_u32(reader)? as usize;
-                let d_end = serialization::read_u32(reader)? as usize;
-                let m_start = serialization::read_u32(reader)? as usize;
-                let m_end = serialization::read_u32(reader)? as usize;
-                Ok(Self::Dropout(DropoutMeta::new(
-                    p, d_start, d_end, m_start, m_end,
-                )?))
+                let a_span = serialization::read_usize_range(reader)?;
+                let m_span = serialization::read_usize_range(reader)?;
+                Ok(Self::Dropout(DropoutMeta::new(p, a_span, m_span)?))
             }
             3 => {
                 let a_start = serialization::read_u32(reader)? as usize;

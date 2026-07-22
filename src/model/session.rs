@@ -1,5 +1,4 @@
-use rand::Rng;
-use thiserror::Error;
+use std::simd::prelude::*;
 
 use crate::{
     model::DefinitionGraph,
@@ -32,43 +31,46 @@ pub struct Session<'a> {
 
     /// Ones vector for use in gemm operations. Reused to avoid allocations.
     ones: Vec<f32>,
-}
 
-#[derive(Error, Debug)]
-pub enum ExecutionError {
-    #[error("Bernoulli distribution error: {0}")]
-    BernoulliDistr(#[from] rand::distr::BernoulliError),
+    /// Current step. Advanced each time `forward` is called.
+    step: usize,
+
+    /// Execution seed.
+    seed: [u32x8; 2],
 }
 
 impl<'a> Session<'a> {
-    pub fn new(graph: &'a DefinitionGraph, batch_size: usize) -> Self {
+    pub fn new(graph: &'a DefinitionGraph, batch_size: usize, seed: Option<[u32; 2]>) -> Self {
         let activations = vec![0.0; batch_size * graph.activation_size];
         let gradients = vec![0.0; graph.params_size];
         let masks = vec![0u8; batch_size * graph.mask_size];
+
+        let session_seed = match seed {
+            Some(seed) => [u32x8::splat(seed[0]), u32x8::splat(seed[1])],
+            None => [u32x8::splat(0), u32x8::splat(0)],
+        };
 
         Self {
             graph,
             batch_size,
             activations,
             masks,
+            step: 0,
             gradients,
             gradient_buffer: (
                 vec![0.0; batch_size * graph.max_dimension],
                 vec![0.0; batch_size * graph.max_dimension],
             ),
             ones: vec![1.0f32; batch_size],
+            seed: session_seed,
         }
     }
 
     /// Runs the forward pass of the model and updates the activations.
-    pub fn forward<R: Rng + ?Sized>(
-        &mut self,
-        params: &mut [f32],
-        x: &[f32],
-        rng: &mut R,
-    ) -> Result<&[f32], ExecutionError> {
+    pub fn forward(&mut self, params: &mut [f32], x: &[f32]) -> &[f32] {
         let mut output_start = 0;
         let mut output_end = 0;
+        self.step += 1;
 
         for op in &self.graph.ops {
             match op {
@@ -117,7 +119,7 @@ impl<'a> Session<'a> {
                         &mut self.activations[meta.activation_offsets(self.batch_size)];
                     let masks = &mut self.masks[meta.mask_offsets(self.batch_size)];
 
-                    dropout::forward(meta, activations, masks, rng);
+                    dropout::forward(meta, activations, masks, self.step, self.seed);
                 }
                 Op::Relu(meta) => {
                     let activations =
@@ -142,7 +144,7 @@ impl<'a> Session<'a> {
             }
         }
 
-        Ok(&self.activations[output_start..output_end])
+        &self.activations[output_start..output_end]
     }
 
     /// Runs the backward pass of the model and updates the gradients.
@@ -227,6 +229,7 @@ impl<'a> Session<'a> {
     pub fn infer(&mut self, params: &mut [f32], x: &[f32]) -> &[f32] {
         let mut output_start = 0;
         let mut output_end = 0;
+        self.step += 1;
 
         for op in &self.graph.ops {
             match op {

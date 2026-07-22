@@ -111,7 +111,7 @@ impl SequentialModel {
             _ => panic!("First layer must be Input"),
         };
         let batch_size = x.len() / input_dim;
-        let mut session = Session::new(&self.graph, batch_size);
+        let mut session = Session::new(&self.graph, batch_size, None);
         session.infer(&mut self.params, x).to_vec()
     }
 

@@ -3,6 +3,7 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::return_self_not_must_use)]
+#![feature(portable_simd)]
 
 extern crate blas_src;
 

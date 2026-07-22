@@ -1,3 +1,4 @@
+use core::ops::Range;
 use std::io::{Read, Write};
 use thiserror::Error;
 
@@ -24,6 +25,12 @@ pub fn read_u32(reader: &mut impl Read) -> Result<u32, SerializationError> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     Ok(u32::from_le_bytes(buf))
+}
+
+pub fn read_usize_range(reader: &mut impl Read) -> Result<Range<usize>, SerializationError> {
+    let start = read_u32(reader)? as usize;
+    let end = read_u32(reader)? as usize;
+    Ok(start..end)
 }
 
 /// Reads a 32-bit floating-point number from the reader in little-endian format.

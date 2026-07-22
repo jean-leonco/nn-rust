@@ -1,0 +1,123 @@
+use std::simd::prelude::*;
+
+const ROUNDS: usize = 10;
+const MULTIPLIER_0: u64 = 0xD2511F53;
+const MULTIPLIER_1: u64 = 0xCD9E8D57;
+const WEYL_0: u32 = 0x9E3779B9;
+const WEYL_1: u32 = 0xBB67AE85;
+/// The number of output values generated per bernoulli call.
+pub const U8_UNITS_PER_CALL: usize = 32;
+/// The lane iota used for generating random numbers.
+pub const LANE_IOTA: u32x8 = u32x8::from_array([0, 1, 2, 3, 4, 5, 6, 7]);
+
+/// Builds the key schedule for the philox algorithm.
+///
+/// # Arguments
+///
+/// * `seed` - An array of two 256-bit SIMD vectors.
+///
+/// # Returns
+///
+/// An array of 10x2 256-bit SIMD vectors representing the key schedule.
+#[inline]
+fn build_key_schedule(seed: [u32x8; 2]) -> [[u32x8; 2]; ROUNDS] {
+    let mut table = [[u32x8::splat(0); 2]; ROUNDS];
+    let mut key_0 = seed[0];
+    let mut key_1 = seed[1];
+
+    let wey_0 = u32x8::splat(WEYL_0);
+    let wey_1 = u32x8::splat(WEYL_1);
+
+    for r in 0..ROUNDS {
+        table[r] = [key_0, key_1];
+        key_0 += wey_0;
+        key_1 += wey_1;
+    }
+
+    table
+}
+
+/// Calculates eight blocks of philox random number.
+///
+/// # Arguments
+///
+/// * `counters` - An array of four 256-bit SIMD vectors.
+/// * `seed` - An array of two 256-bit SIMD vectors.
+///
+/// # Returns
+///
+/// An array of four 256-bit SIMD vectors containing the generated random number.
+#[inline]
+pub fn philox(counters: [u32x8; 4], seed: [u32x8; 2]) -> [u32x8; 4] {
+    let mut result = counters;
+    let schedule = build_key_schedule(seed);
+
+    let mult_0 = u64x8::splat(MULTIPLIER_0);
+    let mult_1 = u64x8::splat(MULTIPLIER_1);
+
+    for r in 0..ROUNDS {
+        let prod_0: u64x8 = result[0].cast::<u64>() * mult_0;
+        let prod_1: u64x8 = result[2].cast::<u64>() * mult_1;
+
+        let h_0 = (prod_0 >> 32).cast::<u32>() ^ result[1] ^ schedule[r][0];
+        let l_0 = prod_0.cast::<u32>();
+
+        let h_1 = (prod_1 >> 32).cast::<u32>() ^ result[3] ^ schedule[r][1];
+        let l_1 = prod_1.cast::<u32>();
+
+        result = [h_1, l_1, h_0, l_0];
+    }
+
+    result
+}
+
+/// Generates a Bernoulli mask using a counter-based RNG.
+///
+/// # Arguments
+///
+/// * `counters` - An array of four 256-bit SIMD vectors.
+/// * `seed` - An array of two 256-bit SIMD vectors.
+/// * `p` - The survival probability.
+///
+/// # Returns
+///
+/// An array of four 64-bit SIMD vectors containing the generated mask.
+/// 1s for success, 0s for failure.
+#[inline]
+pub fn bernoulli(counters: [u32x8; 4], seed: [u32x8; 2], p: f32) -> [u8x8; 4] {
+    let threshold = u32x8::splat((p * u32::MAX as f32) as u32);
+    let one = u8x8::splat(1);
+    let zero = u8x8::splat(0);
+
+    philox(counters, seed).map(|val| val.simd_lt(threshold).select(one, zero))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::simd::u32x8;
+
+    #[test]
+    fn test_philox_deterministic() {
+        let counters = [u32x8::splat(0); 4];
+        let seed = [u32x8::splat(0); 2];
+
+        let result1 = philox(counters, seed);
+        let result2 = philox(counters, seed);
+
+        assert_eq!(result1, result2);
+        assert_ne!(result1[0], counters[0]);
+    }
+
+    #[test]
+    fn test_bernoulli_bounds() {
+        let counters = [u32x8::splat(0); 4];
+        let seed = [u32x8::splat(0); 2];
+
+        let ones = bernoulli(counters, seed, 1.0);
+        let zeros = bernoulli(counters, seed, 0.0);
+
+        assert_eq!(ones[0].to_array(), [1; 8]);
+        assert_eq!(zeros[0].to_array(), [0; 8]);
+    }
+}

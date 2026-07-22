@@ -1,9 +1,12 @@
-use rand_distr::BernoulliError;
+use core::ops::Range;
 use std::marker::PhantomData;
 
 use crate::{
     model::sequential::{DefinitionGraph, SequentialModel},
-    ops::{DenseMeta, DropoutMeta, Initialization, Op, ReluMeta, SigmoidMeta, SoftmaxMeta},
+    ops::{
+        DenseMeta, DropoutMeta, Initialization, Op, ReluMeta, SigmoidMeta, SoftmaxMeta,
+        dropout::DropoutError,
+    },
 };
 
 pub struct NoInput;
@@ -40,18 +43,18 @@ pub struct ModelBuilder<State> {
 }
 
 impl<State> ModelBuilder<State> {
-    fn increment_offset(&mut self, node: NodeType) -> (usize, usize) {
+    fn increment_offset(&mut self, node: NodeType) -> Range<usize> {
         match node {
             NodeType::Dense(output_dim) => {
                 let a_start = self.activations_offset;
                 self.activations_offset += output_dim;
                 let a_end = self.activations_offset;
-                (a_start, a_end)
+                a_start..a_end
             }
             _ => {
                 let a_start = self.activations_offset - self.current_dim;
                 let a_end = self.activations_offset;
-                (a_start, a_end)
+                a_start..a_end
             }
         }
     }
@@ -73,13 +76,13 @@ impl<State> ModelBuilder<State> {
         let b_end = b_start + output_dim;
         self.params_offset += output_dim;
 
-        let (a_start, _) = self.increment_offset(NodeType::Dense(output_dim));
-        self.last_data_start = a_start;
+        let a_span = self.increment_offset(NodeType::Dense(output_dim));
+        self.last_data_start = a_span.start;
 
         DenseMeta::new(
             input_dim,
             output_dim,
-            a_start,
+            a_span.start,
             i_start,
             w_start..w_end,
             b_start..b_end,
@@ -163,35 +166,37 @@ impl ModelBuilder<HasInputLayer> {
 
     // Defines a sigmoid activation layer.
     pub fn sigmoid(mut self) -> ModelBuilder<HasInputLayer> {
-        let (a_start, a_end) = self.increment_offset(NodeType::Sigmoid);
-        self.add_node(Op::Sigmoid(SigmoidMeta::new(a_start, a_end)))
+        let a_span = self.increment_offset(NodeType::Sigmoid);
+        self.add_node(Op::Sigmoid(SigmoidMeta::new(a_span.start, a_span.end)))
     }
 
     // Defines a ReLU activation layer.
     pub fn relu(mut self) -> ModelBuilder<HasInputLayer> {
-        let (a_start, a_end) = self.increment_offset(NodeType::Relu);
-        self.add_node(Op::Relu(ReluMeta::new(a_start, a_end)))
+        let a_span = self.increment_offset(NodeType::Relu);
+        self.add_node(Op::Relu(ReluMeta::new(a_span.start, a_span.end)))
     }
 
     // Defines a dropout layer.
-    pub fn dropout(mut self, p: f32) -> Result<ModelBuilder<HasInputLayer>, BernoulliError> {
-        let (d_start, d_end) = self.increment_offset(NodeType::Dropout);
+    pub fn dropout(mut self, p: f32) -> Result<ModelBuilder<HasInputLayer>, DropoutError> {
+        let a_span = self.increment_offset(NodeType::Dropout);
 
         let m_start = self.masks_offset;
         self.masks_offset += self.current_dim;
         let m_end = self.masks_offset;
 
-        Ok(self.add_node(Op::Dropout(DropoutMeta::new(
-            p, d_start, d_end, m_start, m_end,
-        )?)))
+        Ok(self.add_node(Op::Dropout(DropoutMeta::new(p, a_span, m_start..m_end)?)))
     }
 
     // Defines a softmax activation layer.
     pub fn softmax(mut self) -> ModelBuilder<HasLoss> {
-        let (a_start, a_end) = self.increment_offset(NodeType::SoftMax);
+        let a_span = self.increment_offset(NodeType::SoftMax);
         let output_size = self.current_dim;
 
-        self.add_node(Op::Softmax(SoftmaxMeta::new(a_start, a_end, output_size)))
+        self.add_node(Op::Softmax(SoftmaxMeta::new(
+            a_span.start,
+            a_span.end,
+            output_size,
+        )))
     }
 }
 

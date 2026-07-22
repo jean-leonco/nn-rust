@@ -9,6 +9,7 @@ use rand::{SeedableRng, rngs::SmallRng};
 
 const BATCH_SIZE: usize = 128;
 const INPUT_SIZE: usize = 784;
+const SEED: [u32; 2] = [42; 2];
 
 fn train_model(
     model_name: &str,
@@ -21,20 +22,17 @@ fn train_model(
 ) {
     println!("\n=== {display_name} Model ===");
 
-    let mut session = Session::new(&model.graph, BATCH_SIZE);
-    let mut dataset_rng = rng.clone();
+    let mut session = Session::new(&model.graph, BATCH_SIZE, Some(SEED));
     let optimizer = SgdOptimizer::new(learning_rate);
 
     let mut x = vec![0.0f32; BATCH_SIZE * INPUT_SIZE];
 
     for epoch in 0..epochs {
         let mut train_metrics = TrainMetrics::new(BATCH_SIZE);
-        for (x_batch, y) in dataset.train_batches(&mut dataset_rng) {
+        for (x_batch, y) in dataset.train_batches(rng) {
             MnistDataset::convert_to_px(x_batch, &mut x);
 
-            let prediction = session
-                .forward(&mut model.params, &x, rng)
-                .expect("Failed to forward");
+            let prediction = session.forward(&mut model.params, &x);
             train_metrics.update(prediction, y);
 
             let gradients = session.backward(&model.params, &x, y);
