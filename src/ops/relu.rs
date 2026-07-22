@@ -1,7 +1,7 @@
 use core::ops::{Range, RangeTo};
 
 /// Metadata for the ReLU activation function.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReluMeta {
     /// The relative offsets where current layer activations are stored.
     /// Must be multiplied by the batch size to get the absolute offset.

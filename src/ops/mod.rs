@@ -21,7 +21,7 @@ use crate::{
     ops::initialization::InitializationError,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Op {
     Input(DenseMeta),
     Dense(DenseMeta),

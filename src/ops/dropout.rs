@@ -6,7 +6,7 @@ use std::simd::prelude::*;
 
 /// Metadata for the Dropout layer.
 /// Randomly drops out (sets to zero) a fraction of the neurons.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DropoutMeta {
     /// The survival probability (1 - dropout probability).
     pub p: f32,

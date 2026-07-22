@@ -8,10 +8,7 @@ use crate::{
 
 /// A session for executing a sequential model.
 #[derive(Debug)]
-pub struct Session<'a> {
-    /// The model operations graph.
-    graph: &'a DefinitionGraph,
-
+pub struct Session {
     /// The batch size using between runs. It can't be changed between calls.
     batch_size: usize,
 
@@ -40,8 +37,8 @@ pub struct Session<'a> {
     key_schedule: cbrng::KeySchedule,
 }
 
-impl<'a> Session<'a> {
-    pub fn new(graph: &'a DefinitionGraph, batch_size: usize, seed: Option<[u32; 2]>) -> Self {
+impl Session {
+    pub fn new(graph: &DefinitionGraph, batch_size: usize, seed: Option<[u32; 2]>) -> Self {
         let activations = vec![0.0; batch_size * graph.activation_size];
         let gradients = vec![0.0; graph.params_size];
         let masks = vec![0u8; batch_size * graph.mask_size];
@@ -52,7 +49,6 @@ impl<'a> Session<'a> {
         };
 
         Self {
-            graph,
             batch_size,
             activations,
             masks,
@@ -63,7 +59,11 @@ impl<'a> Session<'a> {
                 vec![0.0; batch_size * graph.max_dimension],
             ),
             ones: vec![1.0f32; batch_size],
-            key_schedule: if graph.ops.iter().any(|op| matches!(op, Op::Dropout(_))) {
+            key_schedule: if graph
+                .train_ops
+                .iter()
+                .any(|op| matches!(op, Op::Dropout(_)))
+            {
                 cbrng::build_key_schedule(session_seed)
             } else {
                 cbrng::EMPTY_KEY_SCHEDULE
@@ -72,12 +72,12 @@ impl<'a> Session<'a> {
     }
 
     /// Runs the forward pass of the model and updates the activations.
-    pub fn forward(&mut self, params: &mut [f32], x: &[f32]) -> &[f32] {
+    pub fn forward(&mut self, ops: &Vec<Op>, params: &mut [f32], x: &[f32]) -> &[f32] {
         let mut output_start = 0;
         let mut output_end = 0;
         self.step += 1;
 
-        for op in &self.graph.ops {
+        for op in ops {
             match op {
                 Op::Input(meta) => {
                     let split_offset = meta.activations_split_offset(self.batch_size);
@@ -153,8 +153,8 @@ impl<'a> Session<'a> {
     }
 
     /// Runs the backward pass of the model and updates the gradients.
-    pub fn backward(&mut self, params: &[f32], x: &[f32], y: &[f32]) -> &[f32] {
-        for op in self.graph.ops.iter().rev() {
+    pub fn backward(&mut self, ops: &Vec<Op>, params: &[f32], x: &[f32], y: &[f32]) -> &[f32] {
+        for op in ops.iter().rev() {
             let (read_buf, write_buf) = &mut self.gradient_buffer;
 
             match op {
@@ -227,81 +227,5 @@ impl<'a> Session<'a> {
         }
 
         &self.gradients
-    }
-
-    /// Runs the forward pass and updates the activations.
-    /// The dropout layers are ignored during inference.
-    pub fn infer(&mut self, params: &mut [f32], x: &[f32]) -> &[f32] {
-        let mut output_start = 0;
-        let mut output_end = 0;
-        self.step += 1;
-
-        for op in &self.graph.ops {
-            match op {
-                Op::Input(meta) => {
-                    let split_offset = meta.activations_split_offset(self.batch_size);
-                    let output = &mut self.activations[split_offset..];
-
-                    let output_slice = &mut output[meta.output_offsets(self.batch_size)];
-
-                    let layer_weights = &params[meta.weight_offsets.clone()];
-                    let layer_bias = &params[meta.bias_offsets.clone()];
-
-                    dense::forward(
-                        meta,
-                        self.batch_size,
-                        &self.ones,
-                        x,
-                        layer_weights,
-                        layer_bias,
-                        output_slice,
-                    );
-                }
-                Op::Dense(meta) => {
-                    let (input, output) = self
-                        .activations
-                        .split_at_mut(meta.activations_split_offset(self.batch_size));
-
-                    let input_slice = &input[meta.input_offsets(self.batch_size)];
-                    let output_slice = &mut output[meta.output_offsets(self.batch_size)];
-
-                    let layer_weights = &params[meta.weight_offsets.clone()];
-                    let layer_bias = &params[meta.bias_offsets.clone()];
-
-                    dense::forward(
-                        meta,
-                        self.batch_size,
-                        &self.ones,
-                        input_slice,
-                        layer_weights,
-                        layer_bias,
-                        output_slice,
-                    );
-                }
-                Op::Relu(meta) => {
-                    let activations =
-                        &mut self.activations[meta.activation_offsets(self.batch_size)];
-
-                    relu::forward(activations);
-                }
-                Op::Sigmoid(meta) => {
-                    let activations =
-                        &mut self.activations[meta.activation_offsets(self.batch_size)];
-
-                    sigmoid::forward(activations);
-                }
-                Op::Softmax(meta) => {
-                    let activation_offsets = meta.activation_offsets(self.batch_size);
-                    output_start = activation_offsets.start;
-                    output_end = activation_offsets.end;
-
-                    let activations = &mut self.activations[activation_offsets];
-                    softmax::forward(meta, activations);
-                }
-                _ => {}
-            }
-        }
-
-        &self.activations[output_start..output_end]
     }
 }

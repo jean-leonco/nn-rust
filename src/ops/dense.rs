@@ -3,7 +3,7 @@ use core::ops::{Range, RangeFrom, RangeTo};
 use crate::ops::{Initialization, gemm};
 
 /// Metadata for the Dense layer.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DenseMeta {
     /// The dimension of this layer input.
     /// Same as previous layer number of neurons.

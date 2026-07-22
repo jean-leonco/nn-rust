@@ -3,7 +3,7 @@ use rand_distr::{Distribution, Normal};
 use thiserror::Error;
 
 /// Initialization for weight matrices.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Initialization {
     /// He (or Kaiming) initialization. Best suited for ReLU activation.
     He,

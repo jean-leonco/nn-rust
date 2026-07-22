@@ -32,10 +32,10 @@ fn train_model(
         for (x_batch, y) in dataset.train_batches(rng) {
             MnistDataset::convert_to_px(x_batch, &mut x);
 
-            let prediction = session.forward(&mut model.params, &x);
+            let prediction = session.forward(&model.graph.train_ops, &mut model.params, &x);
             train_metrics.update(prediction, y);
 
-            let gradients = session.backward(&model.params, &x, y);
+            let gradients = session.backward(&model.graph.train_ops, &model.params, &x, y);
             optimizer.step(&mut model.params, gradients);
         }
 
@@ -46,7 +46,7 @@ fn train_model(
 
     for (x_validation, y) in dataset.validation_batches() {
         MnistDataset::convert_to_px(x_validation, &mut x);
-        let prediction = session.infer(&mut model.params, &x);
+        let prediction = session.forward(&model.graph.inference_ops, &mut model.params, &x);
         validation_metrics.update(prediction, y);
     }
 

@@ -16,7 +16,9 @@ use crate::{
 #[derive(Debug)]
 pub struct DefinitionGraph {
     /// The sequence of operations to be performed by the model.
-    pub ops: Vec<Op>,
+    pub train_ops: Vec<Op>,
+    /// The sequence of operations to be performed by the model during inference.
+    pub inference_ops: Vec<Op>,
     /// The total number of parameters in the model, both weights and biases.
     pub params_size: usize,
     /// The total number of mask parameters in the model. Only present when using dropout layers.
@@ -35,8 +37,17 @@ impl DefinitionGraph {
         activation_size: usize,
         max_dimension: usize,
     ) -> Self {
+        let inference_ops = ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Dropout(_) => None,
+                _ => Some(op.clone()),
+            })
+            .collect::<Vec<_>>();
+
         Self {
-            ops,
+            train_ops: ops,
+            inference_ops,
             params_size,
             mask_size,
             activation_size,
@@ -84,7 +95,7 @@ impl SequentialModel {
         &mut self,
         rng: &mut R,
     ) -> Result<(), initialization::InitializationError> {
-        for op in &self.graph.ops {
+        for op in &self.graph.train_ops {
             match op {
                 Op::Input(meta) | Op::Dense(meta) => {
                     meta.initialization.init(
@@ -106,13 +117,15 @@ impl SequentialModel {
 
     /// Runs the model on the given input data and returns the prediction.
     pub fn predict(&mut self, x: &[f32]) -> Vec<f32> {
-        let input_dim = match &self.graph.ops[0] {
+        let input_dim = match &self.graph.train_ops[0] {
             Op::Input(meta) => meta.input_dim,
             _ => panic!("First layer must be Input"),
         };
         let batch_size = x.len() / input_dim;
         let mut session = Session::new(&self.graph, batch_size, None);
-        session.infer(&mut self.params, x).to_vec()
+        session
+            .forward(&self.graph.inference_ops, &mut self.params, x)
+            .to_vec()
     }
 
     /// Saves the model to the given path.
@@ -127,9 +140,9 @@ impl SequentialModel {
         serialization::write_u32(&mut file, self.graph.activation_size as u32)?;
         serialization::write_u32(&mut file, self.graph.max_dimension as u32)?;
 
-        let n_ops = self.graph.ops.len() as u32;
+        let n_ops = self.graph.train_ops.len() as u32;
         serialization::write_u32(&mut file, n_ops)?;
-        for op in &self.graph.ops {
+        for op in &self.graph.train_ops {
             file.write_all(&op.to_bytes())?;
         }
 

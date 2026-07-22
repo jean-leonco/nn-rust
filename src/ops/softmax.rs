@@ -4,7 +4,7 @@ use std::simd::prelude::*;
 use crate::core::math;
 
 /// Metadata for the Softmax Cross-entropy layer.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SoftmaxMeta {
     /// The relative offsets where current layer activations are stored.
     /// Must be multiplied by the batch size to get the absolute offset.
