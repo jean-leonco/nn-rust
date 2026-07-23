@@ -4,7 +4,7 @@ use nn_rust::{core::metrics, model::SequentialModel};
 fn run_model(model_name: &str, display_name: &str, data: &[f32], true_label: usize) {
     println!("\n=== {display_name} Model ===");
 
-    let mut model = SequentialModel::load(model_name).expect("Failed to load model");
+    let mut model = SequentialModel::load(model_name, None).expect("Failed to load model");
 
     let prediction = model.predict(data);
     let predicted = metrics::argmax(&prediction, 1).expect("Failed to get argmax")[0];

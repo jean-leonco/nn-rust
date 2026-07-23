@@ -2,7 +2,7 @@ use core::ops::Range;
 use std::marker::PhantomData;
 
 use crate::{
-    model::sequential::{DefinitionGraph, SequentialModel},
+    model::sequential::{DefinitionGraph, SequentialModel, SessionCache},
     ops::{
         DenseMeta, DropoutMeta, Initialization, Op, ReluMeta, SigmoidMeta, SoftmaxMeta,
         dropout::DropoutError,
@@ -39,6 +39,8 @@ pub struct ModelBuilder<State> {
     last_data_start: usize,
     /// The list of operations.
     ops: Vec<Op>,
+    /// The session cache.
+    session_cache: Option<SessionCache>,
     _state: PhantomData<State>,
 }
 
@@ -101,6 +103,7 @@ impl<State> ModelBuilder<State> {
             max_dim: self.max_dim,
             last_data_start: self.last_data_start,
             ops: self.ops,
+            session_cache: self.session_cache,
             _state: PhantomData,
         }
     }
@@ -122,6 +125,7 @@ impl ModelBuilder<NoInput> {
             max_dim: 0,
             last_data_start: 0,
             ops: Vec::new(),
+            session_cache: None,
             _state: PhantomData,
         }
     }
@@ -136,6 +140,7 @@ impl ModelBuilder<NoInput> {
             max_dim: dim,
             last_data_start: 0,
             ops: self.ops,
+            session_cache: self.session_cache,
             _state: PhantomData,
         }
     }
@@ -201,6 +206,11 @@ impl ModelBuilder<HasInputLayer> {
 }
 
 impl ModelBuilder<HasLoss> {
+    pub fn session_cache(mut self, session_cache: SessionCache) -> Self {
+        self.session_cache = Some(session_cache);
+        self
+    }
+
     /// Compiles the model. No further changes can be made to the model after this is called.
     pub fn build(self) -> SequentialModel {
         let graph = DefinitionGraph::new(
@@ -210,7 +220,7 @@ impl ModelBuilder<HasLoss> {
             self.activations_offset,
             self.max_dim,
         );
-        SequentialModel::new(graph)
+        SequentialModel::new(graph, self.session_cache)
     }
 }
 

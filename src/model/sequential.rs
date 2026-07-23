@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, VecDeque},
     io::{Read, Write},
     path::Path,
 };
@@ -73,6 +74,59 @@ pub enum SequentialModelSerializationError {
 const MAGIC_NUMBER: [u8; 4] = *b"NNRS";
 const VERSION: u32 = 1;
 
+/// Manages a cache of sessions for different batch sizes.
+#[derive(Debug)]
+pub struct SessionCache {
+    map: HashMap<usize, Session>,
+    order: VecDeque<usize>,
+    max: usize,
+}
+
+impl SessionCache {
+    pub fn new(max: Option<usize>) -> Self {
+        Self {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+            max: max.unwrap_or(100),
+        }
+    }
+
+    pub fn default() -> Self {
+        Self::new(None)
+    }
+
+    pub fn get(&mut self, batch_size: usize) -> Option<&mut Session> {
+        if self.map.contains_key(&batch_size) {
+            self.touch(&batch_size);
+            self.map.get_mut(&batch_size)
+        } else {
+            None
+        }
+    }
+
+    fn touch(&mut self, batch_size: &usize) {
+        if let Some(index) = self.order.iter().position(|&size| size == *batch_size) {
+            self.order.remove(index);
+        }
+        self.order.push_back(*batch_size);
+    }
+
+    pub fn put(&mut self, batch_size: usize, session: Session) {
+        if self.map.contains_key(&batch_size) {
+            self.touch(&batch_size);
+            self.map.insert(batch_size, session);
+        } else {
+            if self.map.len() >= self.max {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.map.remove(&oldest);
+                }
+            }
+            self.order.push_back(batch_size.clone());
+            self.map.insert(batch_size, session);
+        }
+    }
+}
+
 /// Represents a model consisting of its parameters and definition.
 #[derive(Debug)]
 pub struct SequentialModel {
@@ -80,12 +134,16 @@ pub struct SequentialModel {
     pub graph: DefinitionGraph,
     /// Stores the weights and biases of the model.
     pub params: Vec<f32>,
+
+    /// Cached sessions for different batch sizes. Avoids having to recompute sessions for the same batch size.
+    session_cache: SessionCache,
 }
 
 impl SequentialModel {
-    pub fn new(graph: DefinitionGraph) -> Self {
+    pub fn new(graph: DefinitionGraph, session_cache: Option<SessionCache>) -> Self {
         Self {
             params: Vec::with_capacity(graph.params_size),
+            session_cache: session_cache.unwrap_or_else(|| SessionCache::default()),
             graph,
         }
     }
@@ -122,7 +180,15 @@ impl SequentialModel {
             _ => panic!("First layer must be Input"),
         };
         let batch_size = x.len() / input_dim;
-        let mut session = Session::new(&self.graph, batch_size, None);
+
+        let session = if let Some(session) = self.session_cache.get(batch_size) {
+            session
+        } else {
+            self.session_cache
+                .put(batch_size, Session::new(&self.graph, batch_size, None));
+            self.session_cache.get(batch_size).unwrap()
+        };
+
         session
             .forward(&self.graph.inference_ops, &mut self.params, x)
             .to_vec()
@@ -153,7 +219,10 @@ impl SequentialModel {
     }
 
     /// Loads a model from the given path.
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, SequentialModelSerializationError> {
+    pub fn load<P: AsRef<Path>>(
+        path: P,
+        session_cache: Option<SessionCache>,
+    ) -> Result<Self, SequentialModelSerializationError> {
         let mut file = std::fs::File::open(path)?;
 
         let mut magic = [0u8; 4];
@@ -189,7 +258,11 @@ impl SequentialModel {
 
         let params: Vec<f32> = bytemuck::cast_slice(&params_bytes).to_vec();
 
-        Ok(Self { graph, params })
+        Ok(Self {
+            graph,
+            params,
+            session_cache: session_cache.unwrap_or_else(|| SessionCache::default()),
+        })
     }
 }
 
