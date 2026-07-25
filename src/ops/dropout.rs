@@ -13,8 +13,6 @@ pub struct DropoutMeta {
     /// The inverse of the survival probability (1 / p).
     /// This ensures remaining neurons are scaled up to compensate for the dropped out ones.
     pub inv_p: f32,
-
-    pub inv_p_simd: f32x8,
     /// The relative offsets where current layer activations are stored.
     /// Must be multiplied by the batch size to get the absolute offset.
     pub(crate) a_span: Range<usize>,
@@ -49,7 +47,6 @@ impl DropoutMeta {
         Ok(Self {
             p: survival_prob,
             inv_p: 1.0 / (survival_prob),
-            inv_p_simd: f32x8::splat(1.0 / (survival_prob)),
             a_span,
             m_span,
         })
@@ -72,25 +69,6 @@ impl DropoutMeta {
     }
 }
 
-/// Applies dropout to one 8-wide lane. Handles both full-width (len == 8) and ragged tail (len < 8) slices.
-#[inline]
-fn apply_dropout_lane(activation_lane: &mut [f32], mask_lane: &mut [u8], mask: u8x8, inv_p: f32x8) {
-    assert_eq!(activation_lane.len(), mask_lane.len());
-
-    let survival_mask = mask.cast::<u32>().cast::<f32>();
-
-    let scaled = if activation_lane.len() == cbrng::LANE_SIZE {
-        f32x8::from_slice(activation_lane) * survival_mask * inv_p
-    } else {
-        let mut scratch = [0.0f32; cbrng::LANE_SIZE];
-        scratch[..activation_lane.len()].copy_from_slice(activation_lane);
-        f32x8::from_slice(&scratch) * survival_mask * inv_p
-    };
-
-    activation_lane.copy_from_slice(&scaled.to_array()[..activation_lane.len()]);
-    mask_lane.copy_from_slice(&mask.to_array()[..mask_lane.len()]);
-}
-
 /// Applies the dropout to given activations and mask in-place.
 ///
 /// # Arguments
@@ -105,6 +83,8 @@ pub fn forward(
     step: usize,
     key_schedule: &cbrng::KeySchedule,
 ) {
+    assert_eq!(activations.len(), masks.len());
+
     let mut counters = [
         u32x8::splat(0),
         u32x8::splat(meta.a_span.start as u32),
@@ -112,41 +92,35 @@ pub fn forward(
         u32x8::splat(0 as u32),
     ];
 
-    let mut block_idx = 0u32;
-    let mut mask_blocks = masks.chunks_exact_mut(cbrng::BERNOULLI_BATCH_SIZE);
-    let mut activation_blocks = activations.chunks_exact_mut(cbrng::BERNOULLI_BATCH_SIZE);
+    let (activation_chunks, remaining_activations) = activations.as_chunks_mut::<32>();
+    let (mask_chunks, remaining_masks) = masks.as_chunks_mut::<32>();
 
-    for (mask_block, activation_block) in (&mut mask_blocks).zip(&mut activation_blocks) {
+    let mut block_idx = 0;
+    for (activation_chunk, mask_chunk) in activation_chunks.iter_mut().zip(mask_chunks) {
         counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
-        let bernoulli_mask = cbrng::bernoulli(counters, key_schedule, meta.p);
+        let bernoulli_masks = cbrng::bernoulli(counters, key_schedule, meta.p);
 
-        for ((activation_lane, mask_lane), mask) in activation_block
-            .chunks_exact_mut(cbrng::LANE_SIZE)
-            .zip(mask_block.chunks_exact_mut(cbrng::LANE_SIZE))
-            .zip(bernoulli_mask)
-        {
-            apply_dropout_lane(activation_lane, mask_lane, mask, meta.inv_p_simd);
+        for i in 0..32 {
+            let mask = bernoulli_masks[i];
+            mask_chunk[i] = mask;
+            activation_chunk[i] *= mask as u32 as f32 * meta.inv_p;
         }
+
         block_idx += 1;
     }
 
-    let remaining_masks = mask_blocks.into_remainder();
-    let remaining_activations = activation_blocks.into_remainder();
-
     if !remaining_activations.is_empty() {
         counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
-        let bernoulli_mask = cbrng::bernoulli(counters, key_schedule, meta.p);
+        let bernoulli_masks = cbrng::bernoulli(counters, key_schedule, meta.p).to_array();
+        let bernoulli_masks_slice = &bernoulli_masks[..remaining_activations.len()];
 
-        let mut activation_lanes = remaining_activations.chunks_mut(8);
-        let mut mask_lanes = remaining_masks.chunks_mut(8);
-
-        for mask in bernoulli_mask {
-            let (Some(activation_lane), Some(mask_lane)) =
-                (activation_lanes.next(), mask_lanes.next())
-            else {
-                break;
-            };
-            apply_dropout_lane(activation_lane, mask_lane, mask, meta.inv_p_simd);
+        for ((activation, mask), remaining_mask) in remaining_activations
+            .iter_mut()
+            .zip(remaining_masks)
+            .zip(bernoulli_masks_slice)
+        {
+            *mask = *remaining_mask;
+            *activation *= *mask as u32 as f32 * meta.inv_p;
         }
     }
 }

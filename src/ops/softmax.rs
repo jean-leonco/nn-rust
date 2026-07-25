@@ -46,37 +46,27 @@ impl SoftmaxMeta {
 /// * `activations` - The slice to apply the Softmax loss function to.
 pub fn forward(meta: &SoftmaxMeta, activations: &mut [f32]) {
     for row in &mut activations.chunks_mut(meta.output_size) {
-        let mut max_simd = f32x8::splat(f32::NEG_INFINITY);
-        let mut chunks = row.chunks_exact(8);
-        for chunk in chunks.by_ref() {
-            max_simd = max_simd.simd_max(f32x8::from_slice(chunk));
-        }
-        let mut max = max_simd.reduce_max();
-        for &val in chunks.remainder() {
-            max = max.max(val);
-        }
-        let max_simd = f32x8::splat(max);
+        let max = row.iter().fold(f32::NEG_INFINITY, |acc, &val| acc.max(val));
+        let max_simd = f32x16::splat(max);
 
-        let mut sum_simd = f32x8::splat(0.0);
-        let mut total = 0.0f32;
-        let mut chunks = row.chunks_exact_mut(8);
-        for chunk in &mut chunks {
-            let value = f32x8::from_slice(chunk);
+        // LLVM refuses to vectorize this loop, since it can't reorder floating-point sum.
+        let mut total: f32 = 0.0;
+        let mut sum = f32x16::splat(0.0);
+        let (chunks, remainder) = row.as_chunks_mut::<16>();
+        for chunk in chunks {
+            let value = f32x16::from_slice(chunk);
             let e = math::schraudolph_simd(value - max_simd);
-            sum_simd += e;
-            chunk.copy_from_slice(&e.to_array());
+            *chunk = e.to_array();
+            sum += e;
         }
-
-        let remainder = chunks.into_remainder();
         for val in remainder {
             *val = math::schraudolph(*val - max);
             total += *val;
         }
-        total += sum_simd.reduce_sum();
+        total += sum.reduce_sum();
 
-        let inv_sum = 1.0 / total;
         for val in row.iter_mut() {
-            *val *= inv_sum;
+            *val *= 1.0 / total;
         }
     }
 }

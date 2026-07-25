@@ -5,10 +5,6 @@ const MULTIPLIER_0: u64 = 0xD2511F53;
 const MULTIPLIER_1: u64 = 0xCD9E8D57;
 const WEYL_0: u32 = 0x9E3779B9;
 const WEYL_1: u32 = 0xBB67AE85;
-/// The number of output values generated per bernoulli call.
-pub const BERNOULLI_BATCH_SIZE: usize = 32;
-/// The lane size used for generating random numbers.
-pub const LANE_SIZE: usize = 8;
 /// The lane iota used for generating random numbers.
 pub const LANE_IOTA: u32x8 = u32x8::from_array([0, 1, 2, 3, 4, 5, 6, 7]);
 
@@ -92,12 +88,14 @@ pub fn philox(counters: [u32x8; 4], key_schedule: &KeySchedule) -> [u32x8; 4] {
 /// An array of four 64-bit SIMD vectors containing the generated mask.
 /// 1s for success, 0s for failure.
 #[inline]
-pub fn bernoulli(counters: [u32x8; 4], key_schedule: &KeySchedule, p: f32) -> [u8x8; 4] {
+pub fn bernoulli(counters: [u32x8; 4], key_schedule: &KeySchedule, p: f32) -> u8x32 {
     let threshold = u32x8::splat((p * u32::MAX as f32) as u32);
     let one = u8x8::splat(1);
     let zero = u8x8::splat(0);
 
-    philox(counters, key_schedule).map(|val| val.simd_lt(threshold).select(one, zero))
+    let masks = philox(counters, key_schedule).map(|val| val.simd_lt(threshold).select(one, zero));
+    // UNSAFE: Valid because [u8x8; 4] and u8x32 are both exactly 32 bytes
+    unsafe { std::mem::transmute(masks) }
 }
 
 #[cfg(test)]
@@ -145,7 +143,7 @@ mod tests {
         let ones = bernoulli(counters, &key_schedule, 1.0);
         let zeros = bernoulli(counters, &key_schedule, 0.0);
 
-        assert_eq!(ones[0].to_array(), [1; 8]);
-        assert_eq!(zeros[0].to_array(), [0; 8]);
+        assert_eq!(ones.to_array(), [1; 32]);
+        assert_eq!(zeros.to_array(), [0; 32]);
     }
 }

@@ -1,5 +1,4 @@
 use core::ops::{Range, RangeTo};
-use std::simd::prelude::*;
 
 use crate::core::math;
 
@@ -37,23 +36,9 @@ impl SigmoidMeta {
 ///
 /// * `activations` - The slice to apply the Sigmoid function to.
 pub fn forward(activations: &mut [f32]) {
-    let one = f32x8::splat(1.0);
-
-    let mut chunks = activations.chunks_exact_mut(8);
-    for chunk in &mut chunks {
-        let value = f32x8::from_slice(chunk);
-        let z = one / (one + math::schraudolph_simd(-value));
-        chunk.copy_from_slice(&z.to_array());
-    }
-
-    let remaining_activations = chunks.into_remainder();
-    if !remaining_activations.is_empty() {
-        let mut buf = [0.0; 8];
-        buf[..remaining_activations.len()].copy_from_slice(remaining_activations);
-
-        let value = f32x8::from_slice(&buf);
-        let z = one / (one + math::schraudolph_simd(-value));
-        remaining_activations.copy_from_slice(&z.to_array()[..remaining_activations.len()]);
+    for val in activations {
+        let z = 1.0 / (1.0 + math::schraudolph(-*val));
+        *val = z;
     }
 }
 
