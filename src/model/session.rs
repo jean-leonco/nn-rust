@@ -27,9 +27,6 @@ pub struct Session {
     /// Stores dA & dZ.
     gradient_buffer: (Vec<f32>, Vec<f32>),
 
-    /// Ones vector for use in gemm operations. Reused to avoid allocations.
-    ones: Vec<f32>,
-
     /// Current step. Advanced each time `forward` is called.
     step: usize,
 
@@ -58,7 +55,6 @@ impl Session {
                 vec![0.0; batch_size * graph.max_dimension],
                 vec![0.0; batch_size * graph.max_dimension],
             ),
-            ones: vec![1.0f32; batch_size],
             key_schedule: if graph
                 .train_ops
                 .iter()
@@ -91,7 +87,6 @@ impl Session {
                     dense::forward(
                         meta,
                         self.batch_size,
-                        &self.ones,
                         x,
                         layer_weights,
                         layer_bias,
@@ -112,7 +107,6 @@ impl Session {
                     dense::forward(
                         meta,
                         self.batch_size,
-                        &self.ones,
                         input_slice,
                         layer_weights,
                         layer_bias,
@@ -166,7 +160,7 @@ impl Session {
                     let (dw, db) = layer_gradients.split_at_mut(w_len);
                     let dz = &read_buf[meta.dz_offsets(self.batch_size)];
 
-                    dense::backward_parameters(meta, self.batch_size, &self.ones, dw, db, dz, x);
+                    dense::backward_parameters(meta, self.batch_size, dw, db, dz, x);
                 }
                 Op::Dense(meta) => {
                     let layer_gradients =
@@ -180,15 +174,7 @@ impl Session {
                         &self.activations[..meta.activations_split_offset(self.batch_size)];
                     let input_slice = &activations[meta.input_offsets(self.batch_size)];
 
-                    dense::backward_parameters(
-                        meta,
-                        self.batch_size,
-                        &self.ones,
-                        dw,
-                        db,
-                        dz,
-                        input_slice,
-                    );
+                    dense::backward_parameters(meta, self.batch_size, dw, db, dz, input_slice);
 
                     let da = &mut write_buf[meta.da_offsets(self.batch_size)];
                     let layer_weights = &params[meta.weight_offsets.clone()];

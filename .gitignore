@@ -2,3 +2,4 @@
 /evals
 .trace/
 flamegraph.svg
+perf.data*
