@@ -31,8 +31,8 @@ pub fn build_key_schedule(seed: [u32x8; 2]) -> KeySchedule {
     let wey_0 = u32x8::splat(WEYL_0);
     let wey_1 = u32x8::splat(WEYL_1);
 
-    for r in 0..ROUNDS {
-        table[r] = [key_0, key_1];
+    for val in table.iter_mut().take(ROUNDS) {
+        *val = [key_0, key_1];
         key_0 += wey_0;
         key_1 += wey_1;
     }
@@ -57,7 +57,7 @@ pub fn philox(counters: [u32x8; 4], key_schedule: &KeySchedule) -> [u32x8; 4] {
     let mult_0 = u64x8::splat(MULTIPLIER_0);
     let mult_1 = u64x8::splat(MULTIPLIER_1);
 
-    for r in 0..ROUNDS {
+    for key in key_schedule.iter().take(ROUNDS) {
         let prod_0: u64x8 = result[0].cast::<u64>() * mult_0;
         let prod_1: u64x8 = result[2].cast::<u64>() * mult_1;
 
@@ -66,8 +66,8 @@ pub fn philox(counters: [u32x8; 4], key_schedule: &KeySchedule) -> [u32x8; 4] {
         let hi1 = (prod_1 >> 32).cast::<u32>();
         let lo1 = prod_1.cast::<u32>();
 
-        let h0 = hi1 ^ result[1] ^ key_schedule[r][0];
-        let h1 = hi0 ^ result[3] ^ key_schedule[r][1];
+        let h0 = hi1 ^ result[1] ^ key[0];
+        let h1 = hi0 ^ result[3] ^ key[1];
 
         result = [h0, lo1, h1, lo0];
     }

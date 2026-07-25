@@ -89,7 +89,7 @@ pub fn forward(
         u32x8::splat(0),
         u32x8::splat(meta.a_span.start as u32),
         u32x8::splat(step as u32),
-        u32x8::splat(0 as u32),
+        u32x8::splat(0_u32),
     ];
 
     let (activation_chunks, remaining_activations) = activations.as_chunks_mut::<32>();

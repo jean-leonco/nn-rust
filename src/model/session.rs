@@ -153,7 +153,7 @@ impl Session {
     }
 
     /// Runs the backward pass of the model and updates the gradients.
-    pub fn backward(&mut self, ops: &Vec<Op>, params: &[f32], x: &[f32], y: &[f32]) -> &[f32] {
+    pub fn backward(&mut self, ops: &[Op], params: &[f32], x: &[f32], y: &[f32]) -> &[f32] {
         for op in ops.iter().rev() {
             let (read_buf, write_buf) = &mut self.gradient_buffer;
 
