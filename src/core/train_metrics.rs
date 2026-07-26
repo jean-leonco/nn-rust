@@ -1,4 +1,4 @@
-use crate::core::metrics;
+use crate::core::{MetricsError, metrics};
 
 /// Stores the training metrics for a model.
 #[derive(Debug)]
@@ -33,13 +33,16 @@ impl TrainMetrics {
     }
 
     /// Updates the metrics with epoch results.
-    pub fn update(&mut self, prediction: &[f32], target: &[f32]) {
+    pub fn update(
+        &mut self,
+        prediction: &[f32],
+        target: &[f32],
+    ) -> Result<(), MetricsError> {
         self.samples += self.batch_size;
-        self.loss += metrics::cross_entropy_loss(prediction, target, self.batch_size)
-            .expect("predictions and targets must be equally shaped batches")
+        self.loss += metrics::cross_entropy_loss(prediction, target, self.batch_size)?
             * self.batch_size as f32;
-        self.correct += metrics::accuracy(prediction, target, self.batch_size)
-            .expect("Failed to get accuracy")
-            * self.batch_size as f32;
+        self.correct +=
+            metrics::accuracy(prediction, target, self.batch_size)? * self.batch_size as f32;
+        Ok(())
     }
 }

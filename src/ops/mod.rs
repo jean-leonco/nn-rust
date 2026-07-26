@@ -18,6 +18,28 @@ use thiserror::Error;
 
 use crate::core::{Encodable, serialization};
 
+macro_rules! encode_ops {
+    ( $( $variant:ident($meta:ident) => $tag:expr ),+ $(,)? ) => {
+        pub(crate) fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), OpSerializationError> {
+            let mut buf = Vec::new();
+            let buf = match self {
+                $(
+                    Self::$variant($meta) => {
+                        buf.reserve(1 + $meta.encoded_len());
+                        buf.push($tag);
+                        $meta.encode(&mut buf)?;
+                        buf
+                    }
+                )+
+            };
+            writer
+                .write_all(&buf)
+                .map_err(serialization::SerializationError::Io)?;
+            Ok(())
+        }
+    };
+}
+
 #[derive(Debug, Clone)]
 /// A single operation in a sequential model execution plan.
 pub enum Operation {
@@ -56,58 +78,13 @@ impl Operation {
     pub const SIGMOID_ID: u8 = 4;
     pub const SOFTMAX_ID: u8 = 5;
 
-    fn as_u8(&self) -> u8 {
-        match self {
-            Self::Input(..) => Self::INPUT_ID,
-            Self::Dense(..) => Self::DENSE_ID,
-            Self::Dropout(..) => Self::DROPOUT_ID,
-            Self::Relu(..) => Self::RELU_ID,
-            Self::Sigmoid(..) => Self::SIGMOID_ID,
-            Self::Softmax(..) => Self::SOFTMAX_ID,
-        }
-    }
-
-    /// Encodes the operation.
-    pub fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), OpSerializationError> {
-        let mut buf = Vec::new();
-
-        let buf = match self {
-            Self::Input(meta) | Self::Dense(meta) => {
-                buf.reserve(1 + meta.encoded_len());
-                buf.push(self.as_u8());
-                meta.encode(&mut buf)?;
-                buf
-            }
-            Self::Dropout(meta) => {
-                buf.reserve(1 + meta.encoded_len());
-                buf.push(self.as_u8());
-                meta.encode(&mut buf)?;
-                buf
-            }
-            Self::Relu(meta) => {
-                buf.reserve(1 + meta.encoded_len());
-                buf.push(self.as_u8());
-                meta.encode(&mut buf)?;
-                buf
-            }
-            Self::Sigmoid(meta) => {
-                buf.reserve(1 + meta.encoded_len());
-                buf.push(self.as_u8());
-                meta.encode(&mut buf)?;
-                buf
-            }
-            Self::Softmax(meta) => {
-                buf.reserve(1 + meta.encoded_len());
-                buf.push(self.as_u8());
-                meta.encode(&mut buf)?;
-                buf
-            }
-        };
-        writer
-            .write_all(&buf)
-            .map_err(serialization::SerializationError::Io)?;
-
-        Ok(())
+    encode_ops! {
+        Input(meta) => Self::INPUT_ID,
+        Dense(meta) => Self::DENSE_ID,
+        Dropout(meta) => Self::DROPOUT_ID,
+        Relu(meta) => Self::RELU_ID,
+        Sigmoid(meta) => Self::SIGMOID_ID,
+        Softmax(meta) => Self::SOFTMAX_ID,
     }
 
     /// Decodes an operation.
