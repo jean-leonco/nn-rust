@@ -22,7 +22,7 @@ fn train_model(
 ) {
     println!("\n=== {display_name} Model ===");
 
-    let mut session = Session::new(&model, BATCH_SIZE, Some(SEED));
+    let mut session = Session::new(model, BATCH_SIZE, Some(SEED));
     let optimizer = SgdOptimizer::new(learning_rate);
 
     let mut x = vec![0.0f32; BATCH_SIZE * INPUT_SIZE];
@@ -39,7 +39,7 @@ fn train_model(
             optimizer.step(&mut model.params, gradients);
         }
 
-        println!("Epoch {}/{epochs}: {}", epoch, train_metrics);
+        println!("Epoch {epoch}/{epochs}: {train_metrics}");
     }
 
     let mut validation_metrics = TrainMetrics::new(BATCH_SIZE);
@@ -50,7 +50,7 @@ fn train_model(
         validation_metrics.update(prediction, y);
     }
 
-    println!("Validation: {}", validation_metrics);
+    println!("Validation: {validation_metrics}");
 
     model.save(model_name).expect("Failed to save model");
 }

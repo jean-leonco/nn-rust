@@ -150,7 +150,7 @@ impl MnistDataset {
     pub fn convert_to_px(raw_x: &[u8], x: &mut [f32]) {
         const INV_255: f32 = 1.0 / 255.0;
         for (out, &val) in x.iter_mut().zip(raw_x.iter()) {
-            *out = (val as f32) * INV_255;
+            *out = f32::from(val) * INV_255;
         }
     }
 

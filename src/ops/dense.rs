@@ -2,88 +2,84 @@ use core::ops::{Range, RangeTo};
 
 use crate::ops::{Initialization, gemm};
 
-/// Metadata for the Dense layer.
+/// Dense layer metadata.
+///
+/// Arena ranges are relative. Multiply by `batch_size` for absolute indices.
 #[derive(Debug, Clone)]
 pub struct DenseMeta {
-    /// The dimension of this layer input.
-    /// Same as previous layer number of neurons.
+    /// Input dimension. Equal to the connected layer output dimension.
     pub input_dim: usize,
-    /// The dimension of this layer output.
-    /// Same as the number of neurons for the next layer.
+    /// Output dimension.
     pub output_dim: usize,
-    /// The relative input span for this layer.
-    pub relative_input_span: Range<usize>,
-    /// The relative output span for this layer.
-    pub relative_output_span: Range<usize>,
-    /// The relative span where current layer weights are stored.
-    pub weight_span: Range<usize>,
-    /// The relative span where current layer biases are stored.
-    pub bias_span: Range<usize>,
-    /// The initialization method to use for this layer.
+    /// Relative input activation range.
+    pub relative_input_range: Range<usize>,
+    /// Relative output activation range.
+    pub relative_output_range: Range<usize>,
+    /// Weight range.
+    pub weight_range: Range<usize>,
+    /// Bias range.
+    pub bias_range: Range<usize>,
+    /// Weight initialization scheme.
     pub initialization: Initialization,
 }
 
 impl DenseMeta {
+    /// Creates metadata for a dense layer.
     pub fn new(
         input_dim: usize,
         output_dim: usize,
-        relative_input_span: Range<usize>,
-        relative_output_span: Range<usize>,
-        weight_span: Range<usize>,
-        bias_span: Range<usize>,
+        relative_input_range: Range<usize>,
+        relative_output_range: Range<usize>,
+        weight_range: Range<usize>,
+        bias_range: Range<usize>,
         initialization: Initialization,
     ) -> Self {
         Self {
             input_dim,
             output_dim,
-            relative_input_span,
-            relative_output_span,
-            weight_span,
-            bias_span,
+            relative_input_range,
+            relative_output_range,
+            weight_range,
+            bias_range,
             initialization,
         }
     }
 
-    /// Returns the absolute offset where activations must be split to get the input and output activations.
-    pub fn activations_split_offset(&self, batch_size: usize) -> usize {
-        self.relative_output_span.start * batch_size
+    /// Split offset between input and output activations.
+    pub fn activation_split_offset(&self, batch_size: usize) -> usize {
+        self.relative_output_range.start * batch_size
     }
 
-    /// Returns the absolute span where current layer input activations are stored.
-    pub fn input_offset(&self, batch_size: usize) -> Range<usize> {
-        self.relative_input_span.start * batch_size..self.relative_input_span.end * batch_size
+    /// Input activation range.
+    pub fn input_range(&self, batch_size: usize) -> Range<usize> {
+        self.relative_input_range.start * batch_size..self.relative_input_range.end * batch_size
     }
 
-    /// Returns the absolute span where current layer output activations are stored.
-    pub fn output_offset(&self, batch_size: usize) -> Range<usize> {
-        let len = self.relative_output_span.end - self.relative_output_span.start;
+    /// Output activation range.
+    pub fn output_range(&self, batch_size: usize) -> Range<usize> {
+        let len = self.relative_output_range.end - self.relative_output_range.start;
         0..len * batch_size
     }
 
-    /// Returns the absolute span where current layer dz are stored.
-    pub fn dz_offset(&self, batch_size: usize) -> RangeTo<usize> {
+    /// Output gradient range.
+    pub fn gradient_range(&self, batch_size: usize) -> RangeTo<usize> {
         ..self.output_dim * batch_size
     }
 
-    /// Returns the absolute span where current layer da are stored.
-    pub fn da_offset(&self, batch_size: usize) -> RangeTo<usize> {
+    /// Input gradient range.
+    pub fn input_gradient_range(&self, batch_size: usize) -> RangeTo<usize> {
         ..self.input_dim * batch_size
     }
 }
 
-/// Applies the Dense linear transformation to given input, weights, bias and activations in-place.
+/// Forward pass: `Y = X Wᵀ + b`.
 ///
-/// f(x) = wx + b
+/// Shapes: `X [B, input_dim]`, `W [output_dim, input_dim]`, `b [output_dim]`,
+/// `Y [B, output_dim]`. All row-major.
 ///
-/// # Arguments
+/// # Panics
 ///
-/// * `meta` - The Dense layer metadata.
-/// * `batch_size` - The batch size.
-/// * `ones` - The ones vector.
-/// * `input` - The slice of input activations.
-/// * `weights` - The layer weights.
-/// * `bias` - The layer bias.
-/// * `output` - The slice of output activations, written in-place.
+/// Panics if `bias.len() != output_dim`.
 pub fn forward(
     meta: &DenseMeta,
     batch_size: usize,
@@ -117,20 +113,14 @@ pub fn forward(
     }
 }
 
-/// Applies the derivative of the Dense linear transformation function to the given gradients and activations in-place.
+/// Parameter gradients averaged over the batch: `dW = dZᵀ X / B`, `dB = Σ_rows(dZ) / B`.
 ///
-/// dW = dz * activations
-/// dB = dz * ones
+/// Shapes: `dZ [B, output_dim]`, `X [B, input_dim]`, `dW [output_dim, input_dim]`,
+/// `dB [output_dim]`. All row-major.
 ///
-/// # Arguments
+/// # Panics
 ///
-/// * `meta` - The Dense layer metadata.
-/// * `batch_size` - The batch size.
-/// * `ones` - The ones vector.
-/// * `dw` - The current layer weights gradient.
-/// * `db` - The current layer bias gradient.
-/// * `dz` - The incoming gradient with respect to the output of this layer.
-/// * `input` - The previous layer output activations.
+/// Panics if `db.len() != output_dim`.
 pub fn backward_parameters(
     meta: &DenseMeta,
     batch_size: usize,
@@ -166,17 +156,10 @@ pub fn backward_parameters(
     }
 }
 
-/// Propagates the gradient through this layer weights, without computing weight or bias gradients.
+/// Input gradient: `dA = dZ W`.
 ///
-/// dA = dz * W
-///
-/// # Arguments
-///
-/// * `meta` - The Dense layer metadata.
-/// * `batch_size` - The batch size.
-/// * `da` - The gradient with respect to the input of this layer, written in-place.
-/// * `dz` - The incoming gradient with respect to the output of this layer.
-/// * `weights` - The current layer weights.
+/// Shapes: `dZ [B, output_dim]`, `W [output_dim, input_dim]`,
+/// `dA [B, input_dim]`. All row-major.
 pub fn backward_input(
     meta: &DenseMeta,
     batch_size: usize,
@@ -215,12 +198,12 @@ mod tests {
     }
 
     #[test]
-    fn test_offset() {
+    fn test_offsets() {
         let meta = DenseMeta::new(3, 2, 0..4, 4..8, 1..4, 4..6, Initialization::He);
 
-        assert_eq!(meta.activations_split_offset(2), 8);
-        assert_eq!(meta.input_offset(2), 0..8);
-        assert_eq!(meta.output_offset(2), 0..8);
+        assert_eq!(meta.activation_split_offset(2), 8);
+        assert_eq!(meta.input_range(2), 0..8);
+        assert_eq!(meta.output_range(2), 0..8);
     }
 
     #[test]

@@ -1,4 +1,6 @@
 #![allow(clippy::too_many_arguments)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::many_single_char_names)]
 
 /// Performs a Single-precision General Matrix Multiply.
 /// [LAPACK Reference](https://www.netlib.org/lapack/explore-html/dd/d09/group__gemm_ga8cad871c590600454d22564eff4fed6b.html)

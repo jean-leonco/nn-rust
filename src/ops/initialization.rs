@@ -5,9 +5,9 @@ use thiserror::Error;
 /// Initialization for weight matrices.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Initialization {
-    /// He (or Kaiming) initialization. Best suited for ReLU activation.
+    /// He (or Kaiming) initialization. Best suited for `ReLU` activation.
     He,
-    /// Xavier (or Glorot) initialization. Best suited for sigmoid/tanh activation.
+    /// Xavier (or Glorot) initialization. Best suited for Sigmoid/Tanh activation.
     Xavier,
 }
 
@@ -18,7 +18,7 @@ pub enum InitializationError {
 }
 
 impl Initialization {
-    /// Returns the standard deviation for the given initialization scheme.
+    /// Standard deviation for the given initialization scheme.
     fn std_dev(&self, input: usize, output: usize) -> f32 {
         match self {
             Self::He => 2.0 / (input as f32),
@@ -27,7 +27,8 @@ impl Initialization {
         .sqrt()
     }
 
-    pub fn to_u8(&self) -> u8 {
+    /// Returns the stable byte tag.
+    pub fn as_u8(&self) -> u8 {
         match self {
             Self::He => 0,
             Self::Xavier => 1,
@@ -88,8 +89,8 @@ mod tests {
         let he = Initialization::He;
         let xavier = Initialization::Xavier;
 
-        assert_eq!(he.to_u8(), 0);
-        assert_eq!(xavier.to_u8(), 1);
+        assert_eq!(he.as_u8(), 0);
+        assert_eq!(xavier.as_u8(), 1);
 
         assert_eq!(Initialization::try_from(0), Ok(Initialization::He));
         assert_eq!(Initialization::try_from(1), Ok(Initialization::Xavier));

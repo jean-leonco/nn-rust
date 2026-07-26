@@ -9,39 +9,45 @@ pub enum SerializationError {
 }
 
 /// Writes a 32-bit unsigned integer in little-endian format.
+#[inline]
 pub fn write_u32(writer: &mut impl Write, value: u32) -> Result<(), SerializationError> {
     writer.write_all(&value.to_le_bytes())?;
     Ok(())
 }
 
 /// Writes a 32-bit floating-point number in little-endian format.
+#[inline]
 pub fn write_f32(writer: &mut impl Write, value: f32) -> Result<(), SerializationError> {
     writer.write_all(&value.to_le_bytes())?;
     Ok(())
 }
 
-/// Writes a unsigned Range as tuple of 32-bit unsigned integers in little-endian format.
-pub fn write_span(writer: &mut impl Write, value: Range<usize>) -> Result<(), SerializationError> {
+/// Writes a `Range<usize>` as two consecutive 32-bit unsigned integers in little-endian format.
+#[inline]
+pub fn write_range(writer: &mut impl Write, value: Range<usize>) -> Result<(), SerializationError> {
     write_u32(writer, value.start as u32)?;
     write_u32(writer, value.end as u32)?;
     Ok(())
 }
 
 /// Reads a 32-bit unsigned integer in little-endian format.
+#[inline]
 pub fn read_u32(reader: &mut impl Read) -> Result<u32, SerializationError> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     Ok(u32::from_le_bytes(buf))
 }
 
-/// Reads a unsigned Range as tuple of 32-bit unsigned integers in little-endian format.
-pub fn read_span(reader: &mut impl Read) -> Result<Range<usize>, SerializationError> {
+/// Reads a `Range<usize>` as two consecutive 32-bit unsigned integers in little-endian format.
+#[inline]
+pub fn read_range(reader: &mut impl Read) -> Result<Range<usize>, SerializationError> {
     let start = read_u32(reader)? as usize;
     let end = read_u32(reader)? as usize;
     Ok(start..end)
 }
 
 /// Reads a 32-bit floating-point number in little-endian format.
+#[inline]
 pub fn read_f32(reader: &mut impl Read) -> Result<f32, SerializationError> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
@@ -49,6 +55,7 @@ pub fn read_f32(reader: &mut impl Read) -> Result<f32, SerializationError> {
 }
 
 /// Reads a 32-bit unsigned integer in big-endian format.
+#[inline]
 pub fn read_u32_be(reader: &mut impl Read) -> Result<u32, SerializationError> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
@@ -58,8 +65,8 @@ pub fn read_u32_be(reader: &mut impl Read) -> Result<u32, SerializationError> {
 /// Trait for types that can be serialized.
 pub trait Encodable {
     type Error;
-    fn write(&self, writer: &mut impl Write) -> Result<(), Self::Error>;
-    fn from_reader(reader: &mut impl Read) -> Result<Self, Self::Error>
+    fn encode(&self, writer: &mut impl Write) -> Result<(), Self::Error>;
+    fn decode(reader: &mut impl Read) -> Result<Self, Self::Error>
     where
         Self: Sized;
 }

@@ -1,59 +1,41 @@
 use core::ops::{Range, RangeTo};
 
-/// Metadata for the ReLU activation function.
+/// `ReLU` layer metadata.
 #[derive(Debug, Clone)]
 pub struct ReluMeta {
-    /// The relative offsets where current layer activations are stored.
-    /// Must be multiplied by the batch size to get the absolute offset.
-    pub(crate) a_start: usize,
-    pub(crate) a_end: usize,
+    /// Relative activation range.
+    pub(crate) relative_activation_range: Range<usize>,
 }
 
 impl ReluMeta {
-    pub fn new(a_start: usize, a_end: usize) -> Self {
-        Self { a_start, a_end }
-    }
-
-    /// Returns the absolute offsets where current layer activations are stored.
-    pub fn activation_offsets(&self, batch_size: usize) -> Range<usize> {
-        Range {
-            start: self.a_start * batch_size,
-            end: self.a_end * batch_size,
+    /// Creates metadata for an in-place `ReLU`.
+    pub fn new(relative_activation_range: Range<usize>) -> Self {
+        Self {
+            relative_activation_range,
         }
     }
 
-    /// Returns the absolute offsets where current layer gradients are stored.
-    pub fn gradient_offsets(&self, batch_size: usize) -> RangeTo<usize> {
-        let dimension = self.a_end - self.a_start;
-        RangeTo {
-            end: dimension * batch_size,
-        }
+    /// Activation range.
+    pub fn activation_range(&self, batch_size: usize) -> Range<usize> {
+        self.relative_activation_range.start * batch_size
+            ..self.relative_activation_range.end * batch_size
+    }
+
+    /// Gradient range.
+    pub fn gradient_range(&self, batch_size: usize) -> RangeTo<usize> {
+        let dim = self.relative_activation_range.end - self.relative_activation_range.start;
+        ..dim * batch_size
     }
 }
 
-/// Applies the ReLU function to the given activations in-place.
-///
-/// f(x) = max(0, x)
-///
-/// # Arguments
-///
-/// * `activations` - The slice to apply the ReLU function to.
+/// Applies `ReLU` in-place: `f(x) = max(0, x)`.
 pub fn forward(activations: &mut [f32]) {
     for val in activations {
         *val = val.max(0.0);
     }
 }
 
-/// Applies the derivative of the ReLU function to the given gradients in-place.
-///
-/// f'(x) = 1 if x > 0, 0 otherwise
-///
-/// # Arguments
-///
-/// * `dz` - The outgoing gradient with respect to the input of this layer.
-/// * `da` - The incoming gradient with respect to the output of this layer.
-/// * `activations` - The slice containing this layer activations.
-///   It must contain the post-activation values (A) instead of inputs (Z), as derivative is computed directly from the outputs.
+/// Applies the `ReLU` derivative in-place: `f'(x) = 1 if x > 0, else 0`.
 pub fn backward(dz: &mut [f32], da: &[f32], activations: &[f32]) {
     for ((da, dz), a) in da.iter().zip(dz.iter_mut()).zip(activations.iter()) {
         let derivative = if *a > 0.0 { 1.0 } else { 0.0 };
@@ -67,10 +49,10 @@ mod tests {
 
     #[test]
     fn test_offsets() {
-        let meta = ReluMeta::new(2, 5);
+        let meta = ReluMeta::new(2..5);
 
-        assert_eq!(meta.activation_offsets(1), 2..5);
-        assert_eq!(meta.activation_offsets(3), 6..15);
+        assert_eq!(meta.activation_range(1), 2..5);
+        assert_eq!(meta.activation_range(3), 6..15);
     }
 
     #[test]

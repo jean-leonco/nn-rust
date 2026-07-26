@@ -6,6 +6,7 @@ pub struct SgdOptimizer {
 }
 
 impl SgdOptimizer {
+    /// Creates SGD with the supplied learning rate.
     pub fn new(learning_rate: f32) -> Self {
         Self { learning_rate }
     }

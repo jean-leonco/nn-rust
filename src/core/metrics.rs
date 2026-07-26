@@ -2,34 +2,73 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum MetricsError {
-    #[error("Metrics error: empty row")]
+    #[error("empty matrix: no rows to process")]
     EmptyRow,
+    #[error("predictions and targets have different lengths: {predictions_len} vs {targets_len}")]
+    LengthMismatch {
+        predictions_len: usize,
+        targets_len: usize,
+    },
+    #[error("{values_len} values cannot be divided into {rows} equal rows")]
+    InvalidMatrixShape { values_len: usize, rows: usize },
 }
 
-/// Mean cross-entropy loss across `n_rows`.
-pub fn cross_entropy_loss(predictions: &[f32], targets: &[f32], n_rows: usize) -> f32 {
+/// Mean categorical cross-entropy over a row-major probability matrix.
+///
+/// Each row is one sample, each column is one class. `predictions` holds
+/// post-softmax probabilities; `targets` holds the corresponding class
+/// distributions.
+///
+/// # Errors
+///
+/// Returns [`MetricsError::LengthMismatch`] if the slices differ in length,
+/// or [`MetricsError::InvalidMatrixShape`] if `rows` is zero or does not
+/// evenly divide the slice length.
+pub fn cross_entropy_loss(
+    predictions: &[f32],
+    targets: &[f32],
+    rows: usize,
+) -> Result<f32, MetricsError> {
+    if predictions.len() != targets.len() {
+        return Err(MetricsError::LengthMismatch {
+            predictions_len: predictions.len(),
+            targets_len: targets.len(),
+        });
+    }
+    validate_matrix(predictions, rows)?;
+
     let mut loss = 0.0;
     for (p, t) in predictions.iter().zip(targets.iter()) {
-        loss -= t * (p + 1e-8).ln()
+        loss -= t * (p + 1e-8).ln();
     }
-    loss / n_rows as f32
+    Ok(loss / rows as f32)
 }
 
-/// Fraction of rows where the predicted class matches the true class.
-pub fn accuracy(predictions: &[f32], targets: &[f32], n_rows: usize) -> Result<f32, MetricsError> {
-    if n_rows == 0 || predictions.is_empty() {
-        return Err(MetricsError::EmptyRow);
+/// Fraction of rows whose argmax class matches the target argmax class.
+///
+/// Both matrices must be equally shaped and row-major.
+///
+/// # Errors
+///
+/// Returns [`MetricsError::LengthMismatch`] if the slices differ in length,
+/// or [`MetricsError::InvalidMatrixShape`] if `rows` is zero or does not
+/// evenly divide the slice length.
+pub fn accuracy(predictions: &[f32], targets: &[f32], rows: usize) -> Result<f32, MetricsError> {
+    if predictions.len() != targets.len() {
+        return Err(MetricsError::LengthMismatch {
+            predictions_len: predictions.len(),
+            targets_len: targets.len(),
+        });
     }
+    let columns = validate_matrix(predictions, rows)?;
 
     let mut matches = 0.0;
-    let cols = predictions.len() / n_rows;
-
-    for (p, t) in predictions.chunks_exact(cols).zip(targets.chunks_exact(cols)) {
+    for (p, t) in predictions.chunks(columns).zip(targets.chunks(columns)) {
         if argmax_row(p)? == argmax_row(t)? {
             matches += 1.0;
         }
     }
-    Ok(matches / n_rows as f32)
+    Ok(matches / rows as f32)
 }
 
 fn argmax_row(row: &[f32]) -> Result<usize, MetricsError> {
@@ -40,14 +79,36 @@ fn argmax_row(row: &[f32]) -> Result<usize, MetricsError> {
         .ok_or(MetricsError::EmptyRow)
 }
 
-/// Index of the maximum value per row in a flat row-major matrix.
-pub fn argmax(predictions: &[f32], n_rows: usize) -> Result<Vec<usize>, MetricsError> {
-    if n_rows == 0 || predictions.is_empty() {
+/// Index of the maximum value in each row of a flat row-major matrix.
+///
+/// # Errors
+///
+/// Returns [`MetricsError::InvalidMatrixShape`] if `rows` is zero or does
+/// not evenly divide the slice length.
+pub fn argmax(predictions: &[f32], rows: usize) -> Result<Vec<usize>, MetricsError> {
+    let columns = validate_matrix(predictions, rows)?;
+    predictions.chunks(columns).map(argmax_row).collect()
+}
+
+fn validate_matrix(values: &[f32], rows: usize) -> Result<usize, MetricsError> {
+    if values.is_empty() {
         return Err(MetricsError::EmptyRow);
     }
+    if rows == 0 || !values.len().is_multiple_of(rows) {
+        return Err(MetricsError::InvalidMatrixShape {
+            values_len: values.len(),
+            rows,
+        });
+    }
 
-    let cols = predictions.len() / n_rows;
-    predictions.chunks_exact(cols).map(argmax_row).collect()
+    let columns = values.len() / rows;
+    if columns == 0 {
+        return Err(MetricsError::InvalidMatrixShape {
+            values_len: values.len(),
+            rows,
+        });
+    }
+    Ok(columns)
 }
 
 #[cfg(test)]
@@ -61,7 +122,7 @@ mod tests {
         // loss = -sum(t * ln(p + 1e-8)) / n_rows
         // predictions=[0.9, 0.1], targets=[1.0, 0.0], n_rows=1
         // loss = -(1.0 * ln(0.9)) = ~0.10536
-        let loss = cross_entropy_loss(&[0.9, 0.1], &[1.0, 0.0], 1);
+        let loss = cross_entropy_loss(&[0.9, 0.1], &[1.0, 0.0], 1).unwrap();
         assert!((loss - 0.10536).abs() < EPS);
     }
 
@@ -70,25 +131,19 @@ mod tests {
         // Row 1: -(1.0 * ln(0.9)) ≈ 0.10536
         // Row 2: -(1.0 * ln(0.8)) ≈ 0.22314
         // Mean: (0.10536 + 0.22314) / 2 ≈ 0.16425
-        let loss = cross_entropy_loss(
-            &[0.9, 0.1, 0.2, 0.8],
-            &[1.0, 0.0, 0.0, 1.0],
-            2,
-        );
+        let loss = cross_entropy_loss(&[0.9, 0.1, 0.2, 0.8], &[1.0, 0.0, 0.0, 1.0], 2).unwrap();
         assert!((loss - 0.16425).abs() < EPS);
     }
 
     #[test]
     fn cross_entropy_perfect_prediction() {
-        // Predicting 1.0 for the correct class: -ln(1.0 + 1e-8) ≈ 0
-        let loss = cross_entropy_loss(&[0.0, 1.0], &[0.0, 1.0], 1);
+        let loss = cross_entropy_loss(&[0.0, 1.0], &[0.0, 1.0], 1).unwrap();
         assert!(loss < EPS);
     }
 
     #[test]
     fn cross_entropy_epsilon_prevents_log_zero() {
-        // Predicting 0.0 for the correct class should not panic or return -inf
-        let loss = cross_entropy_loss(&[1.0, 0.0], &[0.0, 1.0], 1);
+        let loss = cross_entropy_loss(&[1.0, 0.0], &[0.0, 1.0], 1).unwrap();
         assert!(loss.is_finite());
         assert!(loss > 0.0);
     }
@@ -128,7 +183,22 @@ mod tests {
 
     #[test]
     fn accuracy_zero_rows_returns_error() {
-        assert!(matches!(accuracy(&[0.1, 0.2], &[0.3, 0.4], 0), Err(MetricsError::EmptyRow)));
+        assert!(matches!(
+            accuracy(&[0.1, 0.2], &[0.3, 0.4], 0),
+            Err(MetricsError::InvalidMatrixShape { .. })
+        ));
+    }
+
+    #[test]
+    fn matrix_shape_errors_are_reported() {
+        assert!(matches!(
+            cross_entropy_loss(&[0.9, 0.1], &[1.0], 1),
+            Err(MetricsError::LengthMismatch { .. })
+        ));
+        assert!(matches!(
+            accuracy(&[0.1, 0.2], &[0.3, 0.4], 3),
+            Err(MetricsError::InvalidMatrixShape { .. })
+        ));
     }
 
     #[test]
@@ -145,7 +215,6 @@ mod tests {
 
     #[test]
     fn argmax_tie_returns_last() {
-        // max_by on nightly resolves ties by keeping the last element
         let idx = argmax(&[1.0, 1.0, 0.5], 1).unwrap();
         assert_eq!(idx, vec![1]);
     }
@@ -157,6 +226,9 @@ mod tests {
 
     #[test]
     fn argmax_zero_rows_returns_error() {
-        assert!(matches!(argmax(&[0.1, 0.2], 0), Err(MetricsError::EmptyRow)));
+        assert!(matches!(
+            argmax(&[0.1, 0.2], 0),
+            Err(MetricsError::InvalidMatrixShape { .. })
+        ));
     }
 }

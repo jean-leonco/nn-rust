@@ -18,7 +18,7 @@ impl std::fmt::Display for TrainMetrics {
         let loss = self.loss / self.samples as f32;
         let accuracy = self.correct / self.samples as f32;
 
-        write!(f, "Loss: {:.4}; Accuracy: {:.4}", loss, accuracy)
+        write!(f, "Loss: {loss:.4}; Accuracy: {accuracy:.4}")
     }
 }
 
@@ -36,6 +36,7 @@ impl TrainMetrics {
     pub fn update(&mut self, prediction: &[f32], target: &[f32]) {
         self.samples += self.batch_size;
         self.loss += metrics::cross_entropy_loss(prediction, target, self.batch_size)
+            .expect("predictions and targets must be equally shaped batches")
             * self.batch_size as f32;
         self.correct += metrics::accuracy(prediction, target, self.batch_size)
             .expect("Failed to get accuracy")

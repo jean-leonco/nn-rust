@@ -4,25 +4,26 @@ use crate::{
     core::ArenaLayout,
     model::{SessionCache, sequential::SequentialModel},
     ops::{
-        DenseMeta, DropoutMeta, Initialization, Op, ReluMeta, SigmoidMeta, SoftmaxMeta,
+        DenseMeta, DropoutMeta, Initialization, Operation, ReluMeta, SigmoidMeta, SoftmaxMeta,
         dropout::DropoutError,
     },
 };
 
+/// No input dimension set.
 pub struct NoInput;
+/// Input dimension set, no layers added.
 pub struct HasInputSize;
+/// At least one dense layer added.
 pub struct HasInputLayer;
+/// Terminal softmax added.
 pub struct HasLoss;
 
 #[derive(Debug)]
+/// Sequential model builder.
 pub struct ModelBuilder<State> {
-    /// The arena layout for the model buffers.
     layout: ArenaLayout,
-    /// The current dimension of the input/output.
     current_dim: usize,
-    /// The list of operations.
-    ops: Vec<Op>,
-    /// The session cache.
+    ops: Vec<Operation>,
     session_cache: Option<SessionCache>,
     _state: PhantomData<State>,
 }
@@ -32,24 +33,24 @@ impl<State> ModelBuilder<State> {
         let input_dim = self.current_dim;
         self.current_dim = output_dim;
 
-        let weight_span = self.layout.reserve_params(input_dim * output_dim);
-        let bias_span = self.layout.reserve_params(output_dim);
-        let input_span = self.layout.last_activation_span.clone();
-        let output_span = self.layout.reserve_activations(output_dim);
+        let weight_range = self.layout.reserve_params(input_dim * output_dim);
+        let bias_range = self.layout.reserve_params(output_dim);
+        let input_range = self.layout.last_activation_range.clone();
+        let output_range = self.layout.reserve_activations(output_dim);
 
         DenseMeta::new(
             input_dim,
             output_dim,
-            input_span,
-            output_span,
-            weight_span,
-            bias_span,
+            input_range,
+            output_range,
+            weight_range,
+            bias_range,
             initialization,
         )
     }
 
-    fn add_node<NewState>(mut self, node: Op) -> ModelBuilder<NewState> {
-        self.ops.push(node);
+    fn add_operation<NewState>(mut self, operation: Operation) -> ModelBuilder<NewState> {
+        self.ops.push(operation);
 
         ModelBuilder {
             layout: self.layout,
@@ -68,6 +69,7 @@ impl Default for ModelBuilder<NoInput> {
 }
 
 impl ModelBuilder<NoInput> {
+    /// Creates an empty model builder.
     pub fn new() -> Self {
         Self {
             layout: ArenaLayout::default(),
@@ -78,7 +80,7 @@ impl ModelBuilder<NoInput> {
         }
     }
 
-    /// Defines the input size of the model.
+    /// Sets the input dimension.
     pub fn input(mut self, dim: usize) -> ModelBuilder<HasInputSize> {
         self.layout.reserve_activations(dim);
         ModelBuilder {
@@ -92,68 +94,75 @@ impl ModelBuilder<NoInput> {
 }
 
 impl ModelBuilder<HasInputSize> {
-    /// Defines a dense layer.
+    /// Adds a Dense layer. First layer reads raw input.
     pub fn dense(
         mut self,
         output_dim: usize,
         initialization: Initialization,
     ) -> ModelBuilder<HasInputLayer> {
         let dense_meta = self.add_dense(output_dim, initialization);
-        self.add_node(Op::Input(dense_meta))
+        self.add_operation(Operation::Input(dense_meta))
     }
 }
 
 impl ModelBuilder<HasInputLayer> {
-    /// Defines a dense layer.
+    /// Adds a Dense layer.
     pub fn dense(
         mut self,
         output_dim: usize,
         initialization: Initialization,
     ) -> ModelBuilder<HasInputLayer> {
         let dense_meta = self.add_dense(output_dim, initialization);
-        self.add_node(Op::Dense(dense_meta))
+        self.add_operation(Operation::Dense(dense_meta))
     }
 
-    // Defines a sigmoid activation layer.
+    /// Adds a Sigmoid activation.
     pub fn sigmoid(self) -> ModelBuilder<HasInputLayer> {
-        let a_span = self.layout.last_activation_span.clone();
-        self.add_node(Op::Sigmoid(SigmoidMeta::new(a_span.start, a_span.end)))
+        let activation_range = self.layout.last_activation_range.clone();
+        self.add_operation(Operation::Sigmoid(SigmoidMeta::new(activation_range)))
     }
 
-    // Defines a ReLU activation layer.
+    /// Adds a `ReLU` activation.
     pub fn relu(self) -> ModelBuilder<HasInputLayer> {
-        let a_span = self.layout.last_activation_span.clone();
-        self.add_node(Op::Relu(ReluMeta::new(a_span.start, a_span.end)))
+        let activation_range = self.layout.last_activation_range.clone();
+        self.add_operation(Operation::Relu(ReluMeta::new(activation_range)))
     }
 
-    // Defines a dropout layer.
-    pub fn dropout(mut self, p: f32) -> Result<ModelBuilder<HasInputLayer>, DropoutError> {
-        let a_span = self.layout.last_activation_span.clone();
-        let m_span = self.layout.reserve_masks(self.current_dim);
+    /// Adds a Dropout layer. `dropout_rate` must be in `0.0..1.0`.
+    pub fn dropout(
+        mut self,
+        dropout_rate: f32,
+    ) -> Result<ModelBuilder<HasInputLayer>, DropoutError> {
+        let activation_range = self.layout.last_activation_range.clone();
+        let mask_range = self.layout.reserve_masks(self.current_dim);
 
-        Ok(self.add_node(Op::Dropout(DropoutMeta::new(p, a_span, m_span)?)))
+        Ok(self.add_operation(Operation::Dropout(DropoutMeta::new(
+            dropout_rate,
+            activation_range,
+            mask_range,
+        )?)))
     }
 
-    // Defines a softmax activation layer.
+    /// Adds a Softmax output.
     pub fn softmax(self) -> ModelBuilder<HasLoss> {
-        let a_span = self.layout.last_activation_span.clone();
-        let output_size = self.current_dim;
+        let activation_range = self.layout.last_activation_range.clone();
+        let output_dim = self.current_dim;
 
-        self.add_node(Op::Softmax(SoftmaxMeta::new(
-            a_span.start,
-            a_span.end,
-            output_size,
+        self.add_operation(Operation::Softmax(SoftmaxMeta::new(
+            activation_range,
+            output_dim,
         )))
     }
 }
 
 impl ModelBuilder<HasLoss> {
+    /// Sets the session cache for inference.
     pub fn session_cache(mut self, session_cache: SessionCache) -> Self {
         self.session_cache = Some(session_cache);
         self
     }
 
-    /// Compiles the model. No further changes can be made to the model after this is called.
+    /// Builds the model.
     pub fn build(self) -> SequentialModel {
         SequentialModel::new(self.ops, self.layout, self.session_cache)
     }

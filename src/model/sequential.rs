@@ -9,10 +9,11 @@ use thiserror::Error;
 use crate::{
     core::{ArenaLayout, Encodable, serialization},
     model::{Session, SessionCache, builder},
-    ops::{Op, OpSerializationError, initialization},
+    ops::{OpSerializationError, Operation, initialization},
 };
 
 #[derive(Error, Debug)]
+/// Errors during model serialization.
 pub enum SequentialModelSerializationError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -29,41 +30,45 @@ pub enum SequentialModelSerializationError {
 const MAGIC_NUMBER: [u8; 4] = *b"NNRS";
 const VERSION: u32 = 1;
 
-/// Represents a model consisting of its parameters and definition.
+/// Sequential model with parameters and operation plan.
 #[derive(Debug)]
 pub struct SequentialModel {
-    /// The sequence of operations to be performed by the model.
-    pub train_ops: Vec<Op>,
-    /// The sequence of operations to be performed by the model during inference.
-    pub inference_ops: Vec<Op>,
-    /// The arena layout used during session execution.
+    /// Operations executed during training.
+    pub train_ops: Vec<Operation>,
+    /// Operations executed during inference.
+    pub inference_ops: Vec<Operation>,
+    /// Arena layout for session buffer sizing.
     pub layout: ArenaLayout,
-    /// Stores the weights and biases of the model.
+    /// Model parameters.
     pub params: Vec<f32>,
-    /// Cached sessions for different batch sizes. Avoids having to recompute sessions for the same batch size.
     session_cache: SessionCache,
 }
 
 impl SequentialModel {
-    pub fn new(ops: Vec<Op>, layout: ArenaLayout, session_cache: Option<SessionCache>) -> Self {
+    /// Creates a model from operations and layout.
+    pub fn new(
+        ops: Vec<Operation>,
+        layout: ArenaLayout,
+        session_cache: Option<SessionCache>,
+    ) -> Self {
         Self {
             params: vec![0.0; layout.params_len],
             session_cache: session_cache.unwrap_or_default(),
-            inference_ops: Op::inference_ops(&ops),
+            inference_ops: Operation::inference_ops(&ops),
             train_ops: ops,
             layout,
         }
     }
 
-    /// Initializes the model parameters according to the dense layers initialization method.
+    /// Initializes parameters using each layer initialization scheme.
     pub fn initialize_params<R: Rng + ?Sized>(
         &mut self,
         rng: &mut R,
     ) -> Result<(), initialization::InitializationError> {
         for op in &self.train_ops {
             match op {
-                Op::Input(meta) | Op::Dense(meta) => {
-                    let weights = &mut self.params[meta.weight_span.clone()];
+                Operation::Input(meta) | Operation::Dense(meta) => {
+                    let weights = &mut self.params[meta.weight_range.clone()];
 
                     meta.initialization
                         .init(meta.input_dim, meta.output_dim, weights, rng)?;
@@ -74,14 +79,15 @@ impl SequentialModel {
         Ok(())
     }
 
+    /// Creates a model builder.
     pub fn builder() -> builder::ModelBuilder<builder::NoInput> {
         builder::ModelBuilder::new()
     }
 
-    /// Runs the model on the given input data and returns the prediction.
+    /// Runs inference.
     pub fn predict(&mut self, x: &[f32]) -> Vec<f32> {
         let input_dim = match &self.train_ops[0] {
-            Op::Input(meta) => meta.input_dim,
+            Operation::Input(meta) => meta.input_dim,
             _ => panic!("First layer must be Input"),
         };
         let batch_size = x.len() / input_dim;
@@ -90,7 +96,7 @@ impl SequentialModel {
             session
         } else {
             self.session_cache
-                .put(batch_size, Session::new(&self, batch_size, None));
+                .put(batch_size, Session::new(self, batch_size, None));
             self.session_cache.get(batch_size).unwrap()
         };
 
@@ -99,13 +105,13 @@ impl SequentialModel {
             .to_vec()
     }
 
-    /// Saves the model to the given path.
+    /// Saves the model to `path`.
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), SequentialModelSerializationError> {
         let mut file = std::fs::File::create(path)?;
 
         file.write_all(&MAGIC_NUMBER)?;
         serialization::write_u32(&mut file, VERSION)?;
-        self.layout.write(&mut file)?;
+        self.layout.encode(&mut file)?;
 
         let n_ops = self.train_ops.len() as u32;
         serialization::write_u32(&mut file, n_ops)?;
@@ -119,7 +125,7 @@ impl SequentialModel {
         Ok(())
     }
 
-    /// Loads a model from the given path.
+    /// Loads a model from `path`.
     pub fn load<P: AsRef<Path>>(
         path: P,
         session_cache: Option<SessionCache>,
@@ -139,12 +145,12 @@ impl SequentialModel {
             ));
         }
 
-        let layout = ArenaLayout::from_reader(&mut file)?;
+        let layout = ArenaLayout::decode(&mut file)?;
 
         let n_ops = serialization::read_u32(&mut file)?;
         let mut ops = Vec::new();
         for _ in 0..n_ops {
-            ops.push(Op::from_reader(&mut file)?);
+            ops.push(Operation::decode(&mut file)?);
         }
 
         let n_params = serialization::read_u32(&mut file)? as usize;
@@ -153,7 +159,7 @@ impl SequentialModel {
         let params: Vec<f32> = bytemuck::cast_slice(&params_bytes).to_vec();
 
         Ok(Self {
-            inference_ops: Op::inference_ops(&ops),
+            inference_ops: Operation::inference_ops(&ops),
             train_ops: ops,
             layout,
             params,

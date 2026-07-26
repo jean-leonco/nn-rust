@@ -40,7 +40,7 @@ pub fn build_key_schedule(seed: [u32x8; 2]) -> KeySchedule {
     table
 }
 
-/// Calculates eight blocks of philox random number.
+/// Generates eight blocks of Philox random numbers.
 ///
 /// # Arguments
 ///
@@ -80,15 +80,15 @@ pub fn philox(counters: [u32x8; 4], key_schedule: &KeySchedule) -> [u32x8; 4] {
 /// # Arguments
 ///
 /// * `counters` - An array of four 256-bit SIMD vectors.
-/// * `seed` - An array of two 256-bit SIMD vectors.
+/// * `key_schedule` - The Philox key schedule.
 /// * `p` - The survival probability.
 ///
 /// # Returns
 ///
-/// An array of four 64-bit SIMD vectors containing the generated mask.
-/// 1s for success, 0s for failure.
+/// A 256-bit vector of u8s: 1 for survival, 0 for dropout.
 #[inline]
 pub fn bernoulli(counters: [u32x8; 4], key_schedule: &KeySchedule, p: f32) -> u8x32 {
+    #[allow(clippy::cast_sign_loss)]
     let threshold = u32x8::splat((p * u32::MAX as f32) as u32);
     let one = u8x8::splat(1);
     let zero = u8x8::splat(0);

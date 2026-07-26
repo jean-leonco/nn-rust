@@ -53,7 +53,7 @@ fn main() {
             optimizer.step(&mut model.params, gradients);
         }
 
-        println!("Epoch {}/{EPOCHS}: {}", epoch, train_metrics);
+        println!("Epoch {epoch}/{EPOCHS}: {train_metrics}");
     }
 
     let mut validation_metrics = TrainMetrics::new(BATCH_SIZE);
@@ -64,5 +64,5 @@ fn main() {
         validation_metrics.update(prediction, y);
     }
 
-    println!("Validation: {}", validation_metrics);
+    println!("Validation: {validation_metrics}");
 }
