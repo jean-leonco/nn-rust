@@ -8,18 +8,15 @@ pub mod softmax;
 
 use std::io::Read;
 
-pub use dense::DenseMeta;
-pub use dropout::DropoutMeta;
+pub use dense::{DenseEncodingError, DenseMeta};
+pub use dropout::{DropoutEncodingError, DropoutMeta};
 pub use initialization::Initialization;
 pub use relu::ReluMeta;
 pub use sigmoid::SigmoidMeta;
 pub use softmax::SoftmaxMeta;
 use thiserror::Error;
 
-use crate::{
-    core::{SerializationError, serialization},
-    ops::initialization::InitializationError,
-};
+use crate::core::{Encodable, serialization};
 
 #[derive(Debug, Clone)]
 /// A single operation in a sequential model execution plan.
@@ -41,131 +38,93 @@ pub enum Operation {
 #[derive(Error, Debug)]
 /// Errors during `Operation` serialization.
 pub enum OpSerializationError {
+    #[error("Dense serialization error: {0}")]
+    Dense(#[from] DenseEncodingError),
+    #[error("Dropout serialization error: {0}")]
+    Dropout(#[from] DropoutEncodingError),
     #[error("Serialization error: {0}")]
-    SerializationError(#[from] SerializationError),
-    #[error("Standard IO error: {0}")]
-    StdIo(#[from] std::io::Error),
-    #[error("Initialization error: {0}")]
-    InitializationError(#[from] InitializationError),
+    Serialization(#[from] serialization::SerializationError),
     #[error("Unknown operation variant: {0}")]
     UnknownOperationVariant(u8),
-    #[error("Dropout error: {0}")]
-    DropoutError(#[from] dropout::DropoutError),
 }
 
 impl Operation {
-    /// Converts operation to bytes.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let size = match self {
-            Self::Input { .. } | Self::Dense { .. } => 1 + 8 * 4 + 1,
-            Self::Dropout { .. } => 1 + 4 + 4 * 4,
-            Self::Relu { .. } | Self::Sigmoid { .. } => 1 + 2 * 4,
-            Self::Softmax { .. } => 1 + 3 * 4,
-        };
-        let mut buf = Vec::with_capacity(size);
+    pub const INPUT_ID: u8 = 0;
+    pub const DENSE_ID: u8 = 1;
+    pub const DROPOUT_ID: u8 = 2;
+    pub const RELU_ID: u8 = 3;
+    pub const SIGMOID_ID: u8 = 4;
+    pub const SOFTMAX_ID: u8 = 5;
 
+    fn as_u8(&self) -> u8 {
         match self {
-            Self::Input(meta) | Self::Dense(meta) => {
-                buf.push(u8::from(!matches!(self, Self::Input(_))));
-                serialization::write_u32(&mut buf, meta.input_dim as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.output_dim as u32).unwrap();
-
-                serialization::write_range(&mut buf, meta.relative_input_range.clone()).unwrap();
-                serialization::write_range(&mut buf, meta.relative_output_range.clone()).unwrap();
-                serialization::write_range(&mut buf, meta.weight_range.clone()).unwrap();
-                serialization::write_range(&mut buf, meta.bias_range.clone()).unwrap();
-                buf.push(meta.initialization.as_u8());
-            }
-            Self::Dropout(meta) => {
-                buf.push(2);
-                serialization::write_f32(&mut buf, meta.survival_rate).unwrap();
-                serialization::write_range(&mut buf, meta.relative_activation_range.clone())
-                    .unwrap();
-                serialization::write_range(&mut buf, meta.relative_mask_range.clone()).unwrap();
-            }
-            Self::Relu(meta) => {
-                buf.push(3);
-                serialization::write_range(&mut buf, meta.relative_activation_range.clone())
-                    .unwrap();
-            }
-            Self::Sigmoid(meta) => {
-                buf.push(4);
-                serialization::write_range(&mut buf, meta.relative_activation_range.clone())
-                    .unwrap();
-            }
-            Self::Softmax(meta) => {
-                buf.push(5);
-                serialization::write_range(&mut buf, meta.relative_activation_range.clone())
-                    .unwrap();
-                serialization::write_u32(&mut buf, meta.output_dim as u32).unwrap();
-            }
+            Self::Input(..) => Self::INPUT_ID,
+            Self::Dense(..) => Self::DENSE_ID,
+            Self::Dropout(..) => Self::DROPOUT_ID,
+            Self::Relu(..) => Self::RELU_ID,
+            Self::Sigmoid(..) => Self::SIGMOID_ID,
+            Self::Softmax(..) => Self::SOFTMAX_ID,
         }
-
-        buf
     }
 
-    /// Deserializes an operation from a reader.
-    pub fn decode(reader: &mut impl Read) -> Result<Operation, OpSerializationError> {
-        let mut variant = [0u8; 1];
-        reader.read_exact(&mut variant)?;
+    /// Encodes the operation.
+    pub fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), OpSerializationError> {
+        let mut buf = Vec::new();
 
-        match variant[0] {
-            0 | 1 => {
-                let input_dim = serialization::read_u32(reader)? as usize;
-                let output_dim = serialization::read_u32(reader)? as usize;
-                let input_range = serialization::read_range(reader)?;
-                let output_range = serialization::read_range(reader)?;
-                let weight_range = serialization::read_range(reader)?;
-                let bias_range = serialization::read_range(reader)?;
+        let buf = match self {
+            Self::Input(meta) | Self::Dense(meta) => {
+                buf.reserve(1 + meta.encoded_len());
+                buf.push(self.as_u8());
+                meta.encode(&mut buf)?;
+                buf
+            }
+            Self::Dropout(meta) => {
+                buf.reserve(1 + meta.encoded_len());
+                buf.push(self.as_u8());
+                meta.encode(&mut buf)?;
+                buf
+            }
+            Self::Relu(meta) => {
+                buf.reserve(1 + meta.encoded_len());
+                buf.push(self.as_u8());
+                meta.encode(&mut buf)?;
+                buf
+            }
+            Self::Sigmoid(meta) => {
+                buf.reserve(1 + meta.encoded_len());
+                buf.push(self.as_u8());
+                meta.encode(&mut buf)?;
+                buf
+            }
+            Self::Softmax(meta) => {
+                buf.reserve(1 + meta.encoded_len());
+                buf.push(self.as_u8());
+                meta.encode(&mut buf)?;
+                buf
+            }
+        };
+        writer
+            .write_all(&buf)
+            .map_err(serialization::SerializationError::Io)?;
 
-                let mut init_buf = [0u8; 1];
-                reader.read_exact(&mut init_buf)?;
-                let initialization = Initialization::try_from(init_buf[0])
-                    .map_err(|_| OpSerializationError::UnknownOperationVariant(init_buf[0]))?;
+        Ok(())
+    }
 
-                let meta = DenseMeta::new(
-                    input_dim,
-                    output_dim,
-                    input_range,
-                    output_range,
-                    weight_range,
-                    bias_range,
-                    initialization,
-                );
+    /// Decodes an operation.
+    pub fn decode(reader: &mut impl Read) -> Result<Self, OpSerializationError> {
+        let mut tag = [0u8; 1];
+        reader
+            .read_exact(&mut tag)
+            .map_err(serialization::SerializationError::Io)?;
 
-                if variant[0] == 0 {
-                    Ok(Self::Input(meta))
-                } else {
-                    Ok(Self::Dense(meta))
-                }
-            }
-            2 => {
-                let p = serialization::read_f32(reader)?;
-                let activation_range = serialization::read_range(reader)?;
-                let mask_range = serialization::read_range(reader)?;
-                Ok(Self::Dropout(DropoutMeta::new(
-                    p,
-                    activation_range,
-                    mask_range,
-                )?))
-            }
-            3 => {
-                let activation_range = serialization::read_range(reader)?;
-                Ok(Self::Relu(ReluMeta::new(activation_range)))
-            }
-            4 => {
-                let activation_range = serialization::read_range(reader)?;
-                Ok(Self::Sigmoid(SigmoidMeta::new(activation_range)))
-            }
-            5 => {
-                let activation_range = serialization::read_range(reader)?;
-                let output_dim = serialization::read_u32(reader)? as usize;
-                Ok(Self::Softmax(SoftmaxMeta::new(
-                    activation_range,
-                    output_dim,
-                )))
-            }
-            _ => Err(OpSerializationError::UnknownOperationVariant(variant[0])),
+        match tag[0] {
+            Self::INPUT_ID => Ok(Self::Input(DenseMeta::decode(reader)?)),
+            Self::DENSE_ID => Ok(Self::Dense(DenseMeta::decode(reader)?)),
+            Self::DROPOUT_ID => Ok(Self::Dropout(DropoutMeta::decode(reader)?)),
+            Self::RELU_ID => Ok(Self::Relu(ReluMeta::decode(reader)?)),
+            Self::SIGMOID_ID => Ok(Self::Sigmoid(SigmoidMeta::decode(reader)?)),
+            Self::SOFTMAX_ID => Ok(Self::Softmax(SoftmaxMeta::decode(reader)?)),
+            _ => Err(OpSerializationError::UnknownOperationVariant(tag[0])),
         }
     }
 
@@ -174,7 +133,7 @@ impl Operation {
         base_ops
             .iter()
             .filter_map(|op| match op {
-                Operation::Dropout(_) => None,
+                Self::Dropout(_) => None,
                 _ => Some(op.clone()),
             })
             .collect::<Vec<_>>()

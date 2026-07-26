@@ -2,6 +2,10 @@ use core::ops::Range;
 use std::io::{Read, Write};
 use thiserror::Error;
 
+pub const U32_WIRE: usize = std::mem::size_of::<u32>();
+pub const F32_WIRE: usize = std::mem::size_of::<f32>();
+pub const RANGE_WIRE: usize = 2 * U32_WIRE;
+
 #[derive(Error, Debug)]
 pub enum SerializationError {
     #[error("IO error: {0}")]
@@ -65,6 +69,7 @@ pub fn read_u32_be(reader: &mut impl Read) -> Result<u32, SerializationError> {
 /// Trait for types that can be serialized.
 pub trait Encodable {
     type Error;
+    fn encoded_len(&self) -> usize;
     fn encode(&self, writer: &mut impl Write) -> Result<(), Self::Error>;
     fn decode(reader: &mut impl Read) -> Result<Self, Self::Error>
     where

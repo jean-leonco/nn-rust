@@ -1,5 +1,7 @@
 use core::ops::{Range, RangeTo};
 
+use crate::core::serialization;
+
 /// `ReLU` layer metadata.
 #[derive(Debug, Clone)]
 pub struct ReluMeta {
@@ -25,6 +27,23 @@ impl ReluMeta {
     pub fn gradient_range(&self, batch_size: usize) -> RangeTo<usize> {
         let dim = self.relative_activation_range.end - self.relative_activation_range.start;
         ..dim * batch_size
+    }
+}
+
+impl serialization::Encodable for ReluMeta {
+    type Error = super::serialization::SerializationError;
+
+    fn encoded_len(&self) -> usize {
+        // 1 range
+        serialization::RANGE_WIRE
+    }
+
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), Self::Error> {
+        serialization::write_range(writer, self.relative_activation_range.clone())
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, Self::Error> {
+        Ok(Self::new(serialization::read_range(reader)?))
     }
 }
 

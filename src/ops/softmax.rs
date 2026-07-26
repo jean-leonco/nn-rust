@@ -1,7 +1,7 @@
 use core::ops::Range;
 use std::simd::prelude::*;
 
-use crate::core::math;
+use crate::core::{math, serialization};
 
 /// Softmax layer metadata.
 #[derive(Debug, Clone)]
@@ -25,6 +25,26 @@ impl SoftmaxMeta {
     pub fn activation_range(&self, batch_size: usize) -> Range<usize> {
         self.relative_activation_range.start * batch_size
             ..self.relative_activation_range.end * batch_size
+    }
+}
+
+impl serialization::Encodable for SoftmaxMeta {
+    type Error = super::serialization::SerializationError;
+
+    fn encoded_len(&self) -> usize {
+        // 1 range + 1 u32
+        serialization::RANGE_WIRE + serialization::U32_WIRE
+    }
+
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), Self::Error> {
+        serialization::write_range(writer, self.relative_activation_range.clone())?;
+        serialization::write_u32(writer, self.output_dim as u32)
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, Self::Error> {
+        let range = serialization::read_range(reader)?;
+        let output_dim = serialization::read_u32(reader)? as usize;
+        Ok(Self::new(range, output_dim))
     }
 }
 

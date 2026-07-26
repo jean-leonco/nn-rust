@@ -1,6 +1,8 @@
 use core::ops::{Range, RangeTo};
 
+use crate::core::serialization;
 use crate::ops::{Initialization, gemm};
+use thiserror::Error;
 
 /// Dense layer metadata.
 ///
@@ -69,6 +71,62 @@ impl DenseMeta {
     /// Input gradient range.
     pub fn input_gradient_range(&self, batch_size: usize) -> RangeTo<usize> {
         ..self.input_dim * batch_size
+    }
+}
+
+/// Errors during dense layer serialization.
+#[derive(Error, Debug)]
+pub enum DenseEncodingError {
+    #[error("IO error: {0}")]
+    Io(#[from] serialization::SerializationError),
+    #[error("Invalid initialization: {0}")]
+    InvalidInitialization(String),
+}
+
+impl serialization::Encodable for DenseMeta {
+    type Error = DenseEncodingError;
+
+    fn encoded_len(&self) -> usize {
+        // 2 u32 + 4 ranges + 1 init byte
+        2 * serialization::U32_WIRE + 4 * serialization::RANGE_WIRE + 1
+    }
+
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), Self::Error> {
+        serialization::write_u32(writer, self.input_dim as u32)?;
+        serialization::write_u32(writer, self.output_dim as u32)?;
+        serialization::write_range(writer, self.relative_input_range.clone())?;
+        serialization::write_range(writer, self.relative_output_range.clone())?;
+        serialization::write_range(writer, self.weight_range.clone())?;
+        serialization::write_range(writer, self.bias_range.clone())?;
+        writer
+            .write_all(&[self.initialization.as_u8()])
+            .map_err(serialization::SerializationError::Io)?;
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, Self::Error> {
+        let input_dim = serialization::read_u32(reader)? as usize;
+        let output_dim = serialization::read_u32(reader)? as usize;
+        let relative_input_range = serialization::read_range(reader)?;
+        let relative_output_range = serialization::read_range(reader)?;
+        let weight_range = serialization::read_range(reader)?;
+        let bias_range = serialization::read_range(reader)?;
+        let mut init_buf = [0u8; 1];
+        reader
+            .read_exact(&mut init_buf)
+            .map_err(serialization::SerializationError::Io)?;
+        let initialization = Initialization::try_from(init_buf[0])
+            .map_err(|e| DenseEncodingError::InvalidInitialization(e.to_string()))?;
+
+        Ok(Self::new(
+            input_dim,
+            output_dim,
+            relative_input_range,
+            relative_output_range,
+            weight_range,
+            bias_range,
+            initialization,
+        ))
     }
 }
 

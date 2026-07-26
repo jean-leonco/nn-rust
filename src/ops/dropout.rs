@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::core::cbrng;
+use crate::core::{cbrng, serialization};
 use core::ops::{Range, RangeTo};
 use std::simd::prelude::*;
 
@@ -72,6 +72,39 @@ impl DropoutMeta {
     pub fn gradient_range(&self, batch_size: usize) -> RangeTo<usize> {
         let dim = self.relative_activation_range.end - self.relative_activation_range.start;
         ..dim * batch_size
+    }
+}
+
+/// Errors during dropout layer serialization.
+#[derive(Error, Debug)]
+pub enum DropoutEncodingError {
+    #[error("IO error: {0}")]
+    Io(#[from] serialization::SerializationError),
+    #[error("Invalid dropout: {0}")]
+    InvalidDropout(#[from] DropoutError),
+}
+
+impl serialization::Encodable for DropoutMeta {
+    type Error = DropoutEncodingError;
+
+    fn encoded_len(&self) -> usize {
+        // 1 f32 + 2 ranges
+        serialization::F32_WIRE + 2 * serialization::RANGE_WIRE
+    }
+
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), Self::Error> {
+        serialization::write_f32(writer, self.survival_rate)?;
+        serialization::write_range(writer, self.relative_activation_range.clone())?;
+        serialization::write_range(writer, self.relative_mask_range.clone())?;
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, Self::Error> {
+        let survival_rate = serialization::read_f32(reader)?;
+        let activation_range = serialization::read_range(reader)?;
+        let mask_range = serialization::read_range(reader)?;
+        let dropout_rate = 1.0 - survival_rate;
+        Ok(Self::new(dropout_rate, activation_range, mask_range)?)
     }
 }
 

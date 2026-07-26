@@ -48,7 +48,12 @@ impl ArenaLayout {
 }
 
 impl serialization::Encodable for ArenaLayout {
-    type Error = super::SerializationError;
+    type Error = super::serialization::SerializationError;
+
+    fn encoded_len(&self) -> usize {
+        // 5 u32
+        5 * serialization::U32_WIRE
+    }
 
     fn encode(
         &self,

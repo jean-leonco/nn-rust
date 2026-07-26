@@ -116,7 +116,7 @@ impl SequentialModel {
         let n_ops = self.train_ops.len() as u32;
         serialization::write_u32(&mut file, n_ops)?;
         for op in &self.train_ops {
-            file.write_all(&op.to_bytes())?;
+            op.encode(&mut file)?;
         }
 
         let params_bytes: &[u8] = bytemuck::cast_slice(&self.params);
