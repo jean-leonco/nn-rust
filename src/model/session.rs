@@ -2,7 +2,7 @@ use std::simd::prelude::*;
 
 use crate::{
     core::cbrng,
-    model::DefinitionGraph,
+    model::SequentialModel,
     ops::{Op, dense, dropout, relu, sigmoid, softmax},
 };
 
@@ -35,10 +35,10 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(graph: &DefinitionGraph, batch_size: usize, seed: Option<[u32; 2]>) -> Self {
-        let activations = vec![0.0; batch_size * graph.activation_size];
-        let gradients = vec![0.0; graph.params_size];
-        let masks = vec![0u8; batch_size * graph.mask_size];
+    pub fn new(model: &SequentialModel, batch_size: usize, seed: Option<[u32; 2]>) -> Self {
+        let activations = vec![0.0; batch_size * model.layout.activations_len];
+        let gradients = vec![0.0; model.layout.params_len];
+        let masks = vec![0; batch_size * model.layout.masks_len];
 
         let session_seed = match seed {
             Some(seed) => [u32x8::splat(seed[0]), u32x8::splat(seed[1])],
@@ -52,10 +52,10 @@ impl Session {
             step: 0,
             gradients,
             gradient_buffer: (
-                vec![0.0; batch_size * graph.max_dimension],
-                vec![0.0; batch_size * graph.max_dimension],
+                vec![0.0; batch_size * model.layout.max_neurons],
+                vec![0.0; batch_size * model.layout.max_neurons],
             ),
-            key_schedule: if graph
+            key_schedule: if model
                 .train_ops
                 .iter()
                 .any(|op| matches!(op, Op::Dropout(_)))
@@ -79,10 +79,10 @@ impl Session {
                     let split_offset = meta.activations_split_offset(self.batch_size);
                     let output = &mut self.activations[split_offset..];
 
-                    let output_slice = &mut output[meta.output_offsets(self.batch_size)];
+                    let output_slice = &mut output[meta.output_offset(self.batch_size)];
 
-                    let layer_weights = &params[meta.weight_offsets.clone()];
-                    let layer_bias = &params[meta.bias_offsets.clone()];
+                    let layer_weights = &params[meta.weight_span.clone()];
+                    let layer_bias = &params[meta.bias_span.clone()];
 
                     dense::forward(
                         meta,
@@ -98,11 +98,11 @@ impl Session {
                         .activations
                         .split_at_mut(meta.activations_split_offset(self.batch_size));
 
-                    let input_slice = &input[meta.input_offsets(self.batch_size)];
-                    let output_slice = &mut output[meta.output_offsets(self.batch_size)];
+                    let input_slice = &input[meta.input_offset(self.batch_size)];
+                    let output_slice = &mut output[meta.output_offset(self.batch_size)];
 
-                    let layer_weights = &params[meta.weight_offsets.clone()];
-                    let layer_bias = &params[meta.bias_offsets.clone()];
+                    let layer_weights = &params[meta.weight_span.clone()];
+                    let layer_bias = &params[meta.bias_span.clone()];
 
                     dense::forward(
                         meta,
@@ -154,30 +154,30 @@ impl Session {
             match op {
                 Op::Input(meta) => {
                     let layer_gradients =
-                        &mut self.gradients[meta.weight_offsets.start..meta.bias_offsets.end];
-                    let w_len = meta.weight_offsets.end - meta.weight_offsets.start;
+                        &mut self.gradients[meta.weight_span.start..meta.bias_span.end];
+                    let w_len = meta.weight_span.end - meta.weight_span.start;
 
                     let (dw, db) = layer_gradients.split_at_mut(w_len);
-                    let dz = &read_buf[meta.dz_offsets(self.batch_size)];
+                    let dz = &read_buf[meta.dz_offset(self.batch_size)];
 
                     dense::backward_parameters(meta, self.batch_size, dw, db, dz, x);
                 }
                 Op::Dense(meta) => {
                     let layer_gradients =
-                        &mut self.gradients[meta.weight_offsets.start..meta.bias_offsets.end];
-                    let w_len = meta.weight_offsets.end - meta.weight_offsets.start;
+                        &mut self.gradients[meta.weight_span.start..meta.bias_span.end];
+                    let w_len = meta.weight_span.end - meta.weight_span.start;
 
                     let (dw, db) = layer_gradients.split_at_mut(w_len);
-                    let dz = &read_buf[meta.dz_offsets(self.batch_size)];
+                    let dz = &read_buf[meta.dz_offset(self.batch_size)];
 
                     let activations =
                         &self.activations[..meta.activations_split_offset(self.batch_size)];
-                    let input_slice = &activations[meta.input_offsets(self.batch_size)];
+                    let input_slice = &activations[meta.input_offset(self.batch_size)];
 
                     dense::backward_parameters(meta, self.batch_size, dw, db, dz, input_slice);
 
-                    let da = &mut write_buf[meta.da_offsets(self.batch_size)];
-                    let layer_weights = &params[meta.weight_offsets.clone()];
+                    let da = &mut write_buf[meta.da_offset(self.batch_size)];
+                    let layer_weights = &params[meta.weight_span.clone()];
                     dense::backward_input(meta, self.batch_size, da, dz, layer_weights);
                 }
                 Op::Dropout(meta) => {

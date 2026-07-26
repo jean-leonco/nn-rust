@@ -94,7 +94,7 @@ pub fn bernoulli(counters: [u32x8; 4], key_schedule: &KeySchedule, p: f32) -> u8
     let zero = u8x8::splat(0);
 
     let masks = philox(counters, key_schedule).map(|val| val.simd_lt(threshold).select(one, zero));
-    // UNSAFE: Valid because [u8x8; 4] and u8x32 are both exactly 32 bytes
+    // SAFETY: Valid because [u8x8; 4] and u8x32 are both exactly 32 bytes
     unsafe { std::mem::transmute(masks) }
 }
 

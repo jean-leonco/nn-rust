@@ -16,7 +16,7 @@ const CLAMP_MAX_SIMD: f32x16 = f32x16::splat(CLAMP_MAX);
 pub fn schraudolph_simd(x: f32x16) -> f32x16 {
     let clamped = x.simd_clamp(CLAMP_MIN_SIMD, CLAMP_MAX_SIMD);
     let t = (clamped * C1_SIMD + C2_SIMD).round();
-    // UNSAFE: t is clamped to a range that safely fits in u32.
+    // SAFETY: t is clamped to a range that safely fits in u32.
     // This allows LLVM to compiles natively to `fcvtzu` or `vcvttps2udq`.
     let bits: u32x16 = unsafe { t.to_int_unchecked::<u32>() };
 
@@ -28,7 +28,7 @@ pub fn schraudolph_simd(x: f32x16) -> f32x16 {
 #[inline]
 pub fn schraudolph(x: f32) -> f32 {
     let clamped = x.clamp(CLAMP_MIN, CLAMP_MAX);
-    // UNSAFE: t is clamped to a range that safely fits in u32.
+    // SAFETY: t is clamped to a range that safely fits in u32.
     // This allows LLVM to compile natively to `fcvtzu` or `vcvttps2udq` when auto-vectorizing.
     let bits = unsafe { (clamped * C1 + C2).round().to_int_unchecked::<u32>() };
     f32::from_bits(bits)

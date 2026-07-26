@@ -34,23 +34,21 @@ impl Initialization {
         }
     }
 
-    /// Initializes the params for the given input and output sizes.
+    /// Initializes the weights for the given input and output sizes.
+    /// Expects a zeroed out slice.
     pub fn init<R: Rng + ?Sized>(
         &self,
         input: usize,
         output: usize,
-        params: &mut Vec<f32>,
+        weights: &mut [f32],
         rng: &mut R,
     ) -> Result<(), InitializationError> {
         let std_dev = self.std_dev(input, output);
         let normal = Normal::new(0.0, std_dev)?;
 
-        params.reserve_exact((input * output) + output);
-
-        for _ in 0..(input * output) {
-            params.push(normal.sample(rng));
+        for val in weights {
+            *val = normal.sample(rng);
         }
-        params.extend(std::iter::repeat_n(0.0, output));
 
         Ok(())
     }
@@ -103,13 +101,12 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(42);
         let input = 1000;
         let output = 1000;
-        let mut params = Vec::new();
+        let mut weights = vec![0.0f32; 1_000_000];
 
         let he = Initialization::He;
-        he.init(input, output, &mut params, &mut rng).unwrap();
+        he.init(input, output, &mut weights, &mut rng).unwrap();
 
         let expected_std_dev = he.std_dev(input, output);
-        let weights = &params[..1_000_000];
 
         let mean: f32 = weights.iter().sum::<f32>() / weights.len() as f32;
         let variance: f32 =
@@ -125,13 +122,12 @@ mod tests {
         let mut rng = SmallRng::seed_from_u64(42);
         let input = 1000;
         let output = 1000;
-        let mut params = Vec::new();
+        let mut weights = vec![0.0f32; 1_000_000];
 
         let xavier = Initialization::Xavier;
-        xavier.init(input, output, &mut params, &mut rng).unwrap();
+        xavier.init(input, output, &mut weights, &mut rng).unwrap();
 
         let expected_std_dev = xavier.std_dev(input, output);
-        let weights = &params[..1_000_000];
 
         let mean: f32 = weights.iter().sum::<f32>() / weights.len() as f32;
         let variance: f32 =

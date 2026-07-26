@@ -1,8 +1,8 @@
-use core::ops::Range;
 use std::marker::PhantomData;
 
 use crate::{
-    model::sequential::{DefinitionGraph, SequentialModel, SessionCache},
+    core::ArenaLayout,
+    model::{SessionCache, sequential::SequentialModel},
     ops::{
         DenseMeta, DropoutMeta, Initialization, Op, ReluMeta, SigmoidMeta, SoftmaxMeta,
         dropout::DropoutError,
@@ -15,28 +15,11 @@ pub struct HasInputLayer;
 pub struct HasLoss;
 
 #[derive(Debug)]
-enum NodeType {
-    Dense(usize),
-    Dropout,
-    Relu,
-    Sigmoid,
-    SoftMax,
-}
-
-#[derive(Debug)]
 pub struct ModelBuilder<State> {
-    /// The current offset into the parameter buffer.
-    params_offset: usize,
-    /// The current offset into the mask buffer.
-    masks_offset: usize,
-    /// The current offset into the activation buffer.
-    activations_offset: usize,
+    /// The arena layout for the model buffers.
+    layout: ArenaLayout,
     /// The current dimension of the input/output.
     current_dim: usize,
-    /// The maximum dimension of the input/output.
-    max_dim: usize,
-    /// The last data start offset in the activation buffer.
-    last_data_start: usize,
     /// The list of operations.
     ops: Vec<Op>,
     /// The session cache.
@@ -45,49 +28,22 @@ pub struct ModelBuilder<State> {
 }
 
 impl<State> ModelBuilder<State> {
-    fn increment_offset(&mut self, node: NodeType) -> Range<usize> {
-        match node {
-            NodeType::Dense(output_dim) => {
-                let a_start = self.activations_offset;
-                self.activations_offset += output_dim;
-                let a_end = self.activations_offset;
-                a_start..a_end
-            }
-            _ => {
-                let a_start = self.activations_offset - self.current_dim;
-                let a_end = self.activations_offset;
-                a_start..a_end
-            }
-        }
-    }
-
     fn add_dense(&mut self, output_dim: usize, initialization: Initialization) -> DenseMeta {
-        let i_start = self.last_data_start;
-
         let input_dim = self.current_dim;
         self.current_dim = output_dim;
-        if output_dim > self.max_dim {
-            self.max_dim = output_dim;
-        }
 
-        let w_start = self.params_offset;
-        self.params_offset += input_dim * output_dim;
-        let w_end = self.params_offset;
-
-        let b_start = w_end;
-        let b_end = b_start + output_dim;
-        self.params_offset += output_dim;
-
-        let a_span = self.increment_offset(NodeType::Dense(output_dim));
-        self.last_data_start = a_span.start;
+        let weight_span = self.layout.reserve_params(input_dim * output_dim);
+        let bias_span = self.layout.reserve_params(output_dim);
+        let input_span = self.layout.last_activation_span.clone();
+        let output_span = self.layout.reserve_activations(output_dim);
 
         DenseMeta::new(
             input_dim,
             output_dim,
-            a_span.start,
-            i_start,
-            w_start..w_end,
-            b_start..b_end,
+            input_span,
+            output_span,
+            weight_span,
+            bias_span,
             initialization,
         )
     }
@@ -96,12 +52,8 @@ impl<State> ModelBuilder<State> {
         self.ops.push(node);
 
         ModelBuilder {
-            params_offset: self.params_offset,
-            activations_offset: self.activations_offset,
-            masks_offset: self.masks_offset,
+            layout: self.layout,
             current_dim: self.current_dim,
-            max_dim: self.max_dim,
-            last_data_start: self.last_data_start,
             ops: self.ops,
             session_cache: self.session_cache,
             _state: PhantomData,
@@ -118,12 +70,8 @@ impl Default for ModelBuilder<NoInput> {
 impl ModelBuilder<NoInput> {
     pub fn new() -> Self {
         Self {
-            params_offset: 0,
-            activations_offset: 0,
-            masks_offset: 0,
+            layout: ArenaLayout::default(),
             current_dim: 0,
-            max_dim: 0,
-            last_data_start: 0,
             ops: Vec::new(),
             session_cache: None,
             _state: PhantomData,
@@ -131,14 +79,11 @@ impl ModelBuilder<NoInput> {
     }
 
     /// Defines the input size of the model.
-    pub fn input(self, dim: usize) -> ModelBuilder<HasInputSize> {
+    pub fn input(mut self, dim: usize) -> ModelBuilder<HasInputSize> {
+        self.layout.reserve_activations(dim);
         ModelBuilder {
-            params_offset: 0,
-            activations_offset: dim,
-            masks_offset: 0,
+            layout: self.layout,
             current_dim: dim,
-            max_dim: dim,
-            last_data_start: 0,
             ops: self.ops,
             session_cache: self.session_cache,
             _state: PhantomData,
@@ -170,31 +115,28 @@ impl ModelBuilder<HasInputLayer> {
     }
 
     // Defines a sigmoid activation layer.
-    pub fn sigmoid(mut self) -> ModelBuilder<HasInputLayer> {
-        let a_span = self.increment_offset(NodeType::Sigmoid);
+    pub fn sigmoid(self) -> ModelBuilder<HasInputLayer> {
+        let a_span = self.layout.last_activation_span.clone();
         self.add_node(Op::Sigmoid(SigmoidMeta::new(a_span.start, a_span.end)))
     }
 
     // Defines a ReLU activation layer.
-    pub fn relu(mut self) -> ModelBuilder<HasInputLayer> {
-        let a_span = self.increment_offset(NodeType::Relu);
+    pub fn relu(self) -> ModelBuilder<HasInputLayer> {
+        let a_span = self.layout.last_activation_span.clone();
         self.add_node(Op::Relu(ReluMeta::new(a_span.start, a_span.end)))
     }
 
     // Defines a dropout layer.
     pub fn dropout(mut self, p: f32) -> Result<ModelBuilder<HasInputLayer>, DropoutError> {
-        let a_span = self.increment_offset(NodeType::Dropout);
+        let a_span = self.layout.last_activation_span.clone();
+        let m_span = self.layout.reserve_masks(self.current_dim);
 
-        let m_start = self.masks_offset;
-        self.masks_offset += self.current_dim;
-        let m_end = self.masks_offset;
-
-        Ok(self.add_node(Op::Dropout(DropoutMeta::new(p, a_span, m_start..m_end)?)))
+        Ok(self.add_node(Op::Dropout(DropoutMeta::new(p, a_span, m_span)?)))
     }
 
     // Defines a softmax activation layer.
-    pub fn softmax(mut self) -> ModelBuilder<HasLoss> {
-        let a_span = self.increment_offset(NodeType::SoftMax);
+    pub fn softmax(self) -> ModelBuilder<HasLoss> {
+        let a_span = self.layout.last_activation_span.clone();
         let output_size = self.current_dim;
 
         self.add_node(Op::Softmax(SoftmaxMeta::new(
@@ -213,14 +155,7 @@ impl ModelBuilder<HasLoss> {
 
     /// Compiles the model. No further changes can be made to the model after this is called.
     pub fn build(self) -> SequentialModel {
-        let graph = DefinitionGraph::new(
-            self.ops,
-            self.params_offset,
-            self.masks_offset,
-            self.activations_offset,
-            self.max_dim,
-        );
-        SequentialModel::new(graph, self.session_cache)
+        SequentialModel::new(self.ops, self.layout, self.session_cache)
     }
 }
 
@@ -238,8 +173,8 @@ mod tests {
             .softmax()
             .build();
 
-        assert_eq!(model.graph.params_size, 55);
-        assert_eq!(model.graph.activation_size, 15);
-        assert_eq!(model.graph.max_dimension, 10);
+        assert_eq!(model.layout.params_len, 55);
+        assert_eq!(model.layout.activations_len, 15);
+        assert_eq!(model.layout.max_neurons, 10);
     }
 }

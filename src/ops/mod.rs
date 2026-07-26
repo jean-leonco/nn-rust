@@ -61,21 +61,18 @@ impl Op {
                 buf.push(if matches!(self, Self::Input(_)) { 0 } else { 1 });
                 serialization::write_u32(&mut buf, meta.input_dim as u32).unwrap();
                 serialization::write_u32(&mut buf, meta.output_dim as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.a_start as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.i_start as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.weight_offsets.start as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.weight_offsets.end as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.bias_offsets.start as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.bias_offsets.end as u32).unwrap();
+
+                serialization::write_span(&mut buf, meta.relative_input_span.clone()).unwrap();
+                serialization::write_span(&mut buf, meta.relative_output_span.clone()).unwrap();
+                serialization::write_span(&mut buf, meta.weight_span.clone()).unwrap();
+                serialization::write_span(&mut buf, meta.bias_span.clone()).unwrap();
                 buf.push(meta.initialization.to_u8());
             }
             Self::Dropout(meta) => {
                 buf.push(2);
                 serialization::write_f32(&mut buf, meta.p).unwrap();
-                serialization::write_u32(&mut buf, meta.a_span.start as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.a_span.end as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.m_span.start as u32).unwrap();
-                serialization::write_u32(&mut buf, meta.m_span.end as u32).unwrap();
+                serialization::write_span(&mut buf, meta.a_span.clone()).unwrap();
+                serialization::write_span(&mut buf, meta.m_span.clone()).unwrap();
             }
             Self::Relu(meta) => {
                 buf.push(3);
@@ -107,12 +104,11 @@ impl Op {
             0 | 1 => {
                 let input_dim = serialization::read_u32(reader)? as usize;
                 let output_dim = serialization::read_u32(reader)? as usize;
-                let a_start = serialization::read_u32(reader)? as usize;
-                let i_start = serialization::read_u32(reader)? as usize;
-                let w_start = serialization::read_u32(reader)? as usize;
-                let w_end = serialization::read_u32(reader)? as usize;
-                let b_start = serialization::read_u32(reader)? as usize;
-                let b_end = serialization::read_u32(reader)? as usize;
+                let input_range = serialization::read_span(reader)?;
+                let output_range = serialization::read_span(reader)?;
+                let weight_range = serialization::read_span(reader)?;
+                let bias_range = serialization::read_span(reader)?;
+
                 let mut init_buf = [0u8; 1];
                 reader.read_exact(&mut init_buf)?;
                 let initialization = Initialization::try_from(init_buf[0])
@@ -121,10 +117,10 @@ impl Op {
                 let meta = DenseMeta::new(
                     input_dim,
                     output_dim,
-                    a_start,
-                    i_start,
-                    w_start..w_end,
-                    b_start..b_end,
+                    input_range,
+                    output_range,
+                    weight_range,
+                    bias_range,
                     initialization,
                 );
 
@@ -136,8 +132,8 @@ impl Op {
             }
             2 => {
                 let p = serialization::read_f32(reader)?;
-                let a_span = serialization::read_usize_range(reader)?;
-                let m_span = serialization::read_usize_range(reader)?;
+                let a_span = serialization::read_span(reader)?;
+                let m_span = serialization::read_span(reader)?;
                 Ok(Self::Dropout(DropoutMeta::new(p, a_span, m_span)?))
             }
             3 => {
@@ -158,5 +154,16 @@ impl Op {
             }
             _ => Err(OpSerializationError::UnknownNodeVariant(variant[0])),
         }
+    }
+
+    /// Removes operations not used during inference, such as dropout.
+    pub fn inference_ops(base_ops: &[Op]) -> Vec<Op> {
+        base_ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Dropout(_) => None,
+                _ => Some(op.clone()),
+            })
+            .collect::<Vec<_>>()
     }
 }

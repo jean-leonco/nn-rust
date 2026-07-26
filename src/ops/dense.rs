@@ -1,4 +1,4 @@
-use core::ops::{Range, RangeFrom, RangeTo};
+use core::ops::{Range, RangeTo};
 
 use crate::ops::{Initialization, gemm};
 
@@ -11,14 +11,14 @@ pub struct DenseMeta {
     /// The dimension of this layer output.
     /// Same as the number of neurons for the next layer.
     pub output_dim: usize,
-    pub(crate) a_start: usize,
-    /// The relative start offset where current layer input activations are stored.
-    pub(crate) i_start: usize,
-    /// The relative offsets where current layer weights are stored.
-    pub weight_offsets: Range<usize>,
-    /// The relative offsets where current layer biases are stored.
-    pub bias_offsets: Range<usize>,
-
+    /// The relative input span for this layer.
+    pub relative_input_span: Range<usize>,
+    /// The relative output span for this layer.
+    pub relative_output_span: Range<usize>,
+    /// The relative span where current layer weights are stored.
+    pub weight_span: Range<usize>,
+    /// The relative span where current layer biases are stored.
+    pub bias_span: Range<usize>,
     /// The initialization method to use for this layer.
     pub initialization: Initialization,
 }
@@ -27,54 +27,47 @@ impl DenseMeta {
     pub fn new(
         input_dim: usize,
         output_dim: usize,
-        a_start: usize,
-        i_start: usize,
-        weight_offsets: Range<usize>,
-        bias_offsets: Range<usize>,
+        relative_input_span: Range<usize>,
+        relative_output_span: Range<usize>,
+        weight_span: Range<usize>,
+        bias_span: Range<usize>,
         initialization: Initialization,
     ) -> Self {
         Self {
             input_dim,
             output_dim,
-            a_start,
-            i_start,
-            weight_offsets,
-            bias_offsets,
+            relative_input_span,
+            relative_output_span,
+            weight_span,
+            bias_span,
             initialization,
         }
     }
 
     /// Returns the absolute offset where activations must be split to get the input and output activations.
     pub fn activations_split_offset(&self, batch_size: usize) -> usize {
-        self.a_start * batch_size
+        self.relative_output_span.start * batch_size
     }
 
-    /// Returns the absolute offsets where current layer input activations are stored.
-    pub fn input_offsets(&self, batch_size: usize) -> RangeFrom<usize> {
-        RangeFrom {
-            start: self.i_start * batch_size,
-        }
+    /// Returns the absolute span where current layer input activations are stored.
+    pub fn input_offset(&self, batch_size: usize) -> Range<usize> {
+        self.relative_input_span.start * batch_size..self.relative_input_span.end * batch_size
     }
 
-    /// Returns the absolute offsets where current layer output activations are stored.
-    pub fn output_offsets(&self, batch_size: usize) -> RangeTo<usize> {
-        RangeTo {
-            end: self.output_dim * batch_size,
-        }
+    /// Returns the absolute span where current layer output activations are stored.
+    pub fn output_offset(&self, batch_size: usize) -> Range<usize> {
+        let len = self.relative_output_span.end - self.relative_output_span.start;
+        0..len * batch_size
     }
 
-    /// Returns the absolute offsets where current layer dz are stored.
-    pub fn dz_offsets(&self, batch_size: usize) -> RangeTo<usize> {
-        RangeTo {
-            end: self.output_dim * batch_size,
-        }
+    /// Returns the absolute span where current layer dz are stored.
+    pub fn dz_offset(&self, batch_size: usize) -> RangeTo<usize> {
+        ..self.output_dim * batch_size
     }
 
-    /// Returns the absolute offsets where current layer da are stored.
-    pub fn da_offsets(&self, batch_size: usize) -> RangeTo<usize> {
-        RangeTo {
-            end: self.input_dim * batch_size,
-        }
+    /// Returns the absolute span where current layer da are stored.
+    pub fn da_offset(&self, batch_size: usize) -> RangeTo<usize> {
+        ..self.input_dim * batch_size
     }
 }
 
@@ -222,17 +215,17 @@ mod tests {
     }
 
     #[test]
-    fn test_offsets() {
-        let meta = DenseMeta::new(3, 2, 5, 2, 1..4, 4..6, Initialization::He);
+    fn test_offset() {
+        let meta = DenseMeta::new(3, 2, 0..4, 4..8, 1..4, 4..6, Initialization::He);
 
-        assert_eq!(meta.activations_split_offset(2), 10);
-        assert_eq!(meta.input_offsets(2), RangeFrom { start: 4 });
-        assert_eq!(meta.output_offsets(2), RangeTo { end: 4 });
+        assert_eq!(meta.activations_split_offset(2), 8);
+        assert_eq!(meta.input_offset(2), 0..8);
+        assert_eq!(meta.output_offset(2), 0..8);
     }
 
     #[test]
     fn test_forward() {
-        let meta = DenseMeta::new(2, 3, 0, 0, 0..0, 0..0, Initialization::He);
+        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
         let input = vec![1.0, 2.0, 3.0, 4.0];
         let weights = vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
@@ -246,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_backward_parameters() {
-        let meta = DenseMeta::new(2, 3, 0, 0, 0..0, 0..0, Initialization::He);
+        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
         let dz = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let input = vec![1.0, 0.0, 0.0, 1.0];
@@ -261,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_backward_input() {
-        let meta = DenseMeta::new(2, 3, 0, 0, 0..0, 0..0, Initialization::He);
+        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
         let dz = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let weights = vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
@@ -274,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_forward_and_backward_parameters() {
-        let meta = DenseMeta::new(2, 3, 0, 0, 0..0, 0..0, Initialization::He);
+        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
 
         let input = vec![1.0, 2.0, 3.0, 4.0];
@@ -295,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_forward_and_backward_input() {
-        let meta = DenseMeta::new(2, 3, 0, 0, 0..0, 0..0, Initialization::He);
+        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
 
         let input = vec![1.0, 2.0, 3.0, 4.0];

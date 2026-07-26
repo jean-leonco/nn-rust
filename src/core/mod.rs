@@ -1,9 +1,11 @@
-pub mod cbrng;
-pub mod math;
+pub(crate) mod arena;
+pub(crate) mod cbrng;
+pub(crate) mod math;
 pub mod metrics;
-pub mod serialization;
-pub mod train_metrics;
+pub(crate) mod serialization;
+pub(crate) mod train_metrics;
 
+pub use arena::*;
 pub use cbrng::*;
 pub use math::*;
 pub use metrics::*;
