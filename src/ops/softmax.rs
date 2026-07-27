@@ -1,7 +1,5 @@
-use core::ops::Range;
-use std::simd::prelude::*;
-
 use crate::core::{math, serialization};
+use core::ops::Range;
 
 /// Softmax layer metadata.
 #[derive(Debug, Clone)]
@@ -69,24 +67,20 @@ pub fn forward(meta: &SoftmaxMeta, activations: &mut [f32]) {
     );
     for row in &mut activations.chunks_mut(meta.output_dim) {
         let max = row.iter().fold(f32::NEG_INFINITY, |acc, &val| acc.max(val));
-        let max_simd = f32x16::splat(max);
-
-        // LLVM refuses to vectorize this loop, since it can't reorder floating-point sum.
-        let mut total: f32 = 0.0;
-        let mut sum = f32x16::splat(0.0);
-        let (chunks, remainder) = row.as_chunks_mut::<16>();
+        let (chunks, mut remainder) = row.as_chunks_mut::<16>();
         for chunk in chunks {
-            let value = f32x16::from_slice(chunk);
-            let e = math::schraudolph_simd(value - max_simd);
-            *chunk = e.to_array();
-            sum += e;
+            math::schraudolph_array(chunk, max);
+        }
+        if remainder.len() >= 8 {
+            let (chunk, tail) = remainder.split_at_mut(8);
+            math::schraudolph_array::<8>(chunk.try_into().expect("chunk has eight elements"), max);
+            remainder = tail;
         }
         for val in remainder {
             *val = math::schraudolph(*val - max);
-            total += *val;
         }
-        total += sum.reduce_sum();
 
+        let total = row.iter().sum::<f32>();
         for val in row.iter_mut() {
             *val *= 1.0 / total;
         }

@@ -33,11 +33,7 @@ impl TrainMetrics {
     }
 
     /// Updates the metrics with epoch results.
-    pub fn update(
-        &mut self,
-        prediction: &[f32],
-        target: &[f32],
-    ) -> Result<(), MetricsError> {
+    pub fn update(&mut self, prediction: &[f32], target: &[f32]) -> Result<(), MetricsError> {
         self.samples += self.batch_size;
         self.loss += metrics::cross_entropy_loss(prediction, target, self.batch_size)?
             * self.batch_size as f32;

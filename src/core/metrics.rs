@@ -39,7 +39,9 @@ pub fn cross_entropy_loss(
 
     let mut loss = 0.0;
     for (p, t) in predictions.iter().zip(targets.iter()) {
-        loss -= t * (p + 1e-8).ln();
+        if *t != 0.0 {
+            loss -= t * (p + 1e-8).ln();
+        }
     }
     Ok(loss / rows as f32)
 }

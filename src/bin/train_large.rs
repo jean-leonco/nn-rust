@@ -47,7 +47,9 @@ fn main() {
             MnistDataset::convert_to_px(x_batch, &mut x);
 
             let prediction = session.forward(&model.train_ops, &mut model.params, &x);
-            train_metrics.update(prediction, y).expect("metrics shape mismatch");
+            train_metrics
+                .update(prediction, y)
+                .expect("metrics shape mismatch");
 
             let gradients = session.backward(&model.train_ops, &model.params, &x, y);
             optimizer.step(&mut model.params, gradients);
@@ -61,7 +63,9 @@ fn main() {
     for (x_validation, y) in dataset.validation_batches() {
         MnistDataset::convert_to_px(x_validation, &mut x);
         let prediction = session.forward(&model.inference_ops, &mut model.params, &x);
-        validation_metrics.update(prediction, y).expect("metrics shape mismatch");
+        validation_metrics
+            .update(prediction, y)
+            .expect("metrics shape mismatch");
     }
 
     println!("Validation: {validation_metrics}");
