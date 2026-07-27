@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::{
     core::{ArenaLayout, Encodable, serialization},
     model::{Session, SessionCache, builder},
-    ops::{OpSerializationError, Operation, initialization},
+    ops::{LossKind, OpSerializationError, Operation, initialization},
 };
 
 #[derive(Error, Debug)]
@@ -80,11 +80,15 @@ impl SequentialModel {
     ) -> Result<(), initialization::InitializationError> {
         for op in &self.train_ops {
             match op {
-                Operation::Input(meta) | Operation::Dense(meta) => {
-                    let weights = &mut self.params[meta.weight_range.clone()];
+                Operation::Input(operation) | Operation::Dense(operation) => {
+                    let weights = &mut self.params[operation.weight_range.clone()];
 
-                    meta.initialization
-                        .init(meta.input_dim, meta.output_dim, weights, rng)?;
+                    operation.initialization.init(
+                        operation.input_dim,
+                        operation.output_dim,
+                        weights,
+                        rng,
+                    )?;
                 }
                 _ => {}
             }
@@ -202,9 +206,17 @@ impl SequentialModel {
 
     fn input_dim(&self) -> Option<usize> {
         match self.train_ops.first() {
-            Some(Operation::Input(meta)) => Some(meta.input_dim),
+            Some(Operation::Input(operation)) => Some(operation.input_dim),
             _ => None,
         }
+    }
+
+    pub fn loss_kind(&self) -> LossKind {
+        self.inference_ops
+            .last()
+            .expect("Model should have last operation")
+            .loss_kind()
+            .expect("Model should have loss operation")
     }
 }
 
@@ -222,6 +234,7 @@ mod tests {
             .dense(20, Initialization::He)
             .dense(5, Initialization::Xavier)
             .softmax()
+            .cross_entropy()
             .build();
 
         model.initialize_params(&mut rng).unwrap();

@@ -1,5 +1,4 @@
 use nn_rust::{
-    core::TrainMetrics,
     dataset::mnist::MnistDataset,
     model::{SequentialModel, Session},
     ops::Initialization,
@@ -28,12 +27,12 @@ fn train_model(
     let mut x = vec![0.0f32; BATCH_SIZE * INPUT_SIZE];
 
     for epoch in 0..epochs {
-        let mut train_metrics = TrainMetrics::new(BATCH_SIZE);
+        let mut metrics = model.loss_kind().metrics(BATCH_SIZE);
         for (x_batch, y) in dataset.train_batches(rng) {
             MnistDataset::convert_to_px(x_batch, &mut x);
 
             let prediction = session.forward(&model.train_ops, &mut model.params, &x);
-            train_metrics
+            metrics
                 .update(prediction, y)
                 .expect("metrics shape mismatch");
 
@@ -41,10 +40,10 @@ fn train_model(
             optimizer.step(&mut model.params, gradients);
         }
 
-        println!("Epoch {epoch}/{epochs}: {train_metrics}");
+        println!("Epoch {}/{epochs}: {metrics}", epoch + 1);
     }
 
-    let mut validation_metrics = TrainMetrics::new(BATCH_SIZE);
+    let mut validation_metrics = model.loss_kind().metrics(BATCH_SIZE);
 
     for (x_validation, y) in dataset.validation_batches() {
         MnistDataset::convert_to_px(x_validation, &mut x);
@@ -75,6 +74,7 @@ fn main() {
         .unwrap()
         .dense(10, Initialization::He)
         .softmax()
+        .cross_entropy()
         .build();
     relu_model
         .initialize_params(&mut rng)
@@ -102,6 +102,7 @@ fn main() {
         .unwrap()
         .dense(10, Initialization::Xavier)
         .softmax()
+        .cross_entropy()
         .build();
     sigmoid_model
         .initialize_params(&mut rng)

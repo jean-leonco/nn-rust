@@ -1,5 +1,5 @@
 use image::{DynamicImage, GenericImageView, imageops::FilterType};
-use nn_rust::{core::metrics, model::SequentialModel};
+use nn_rust::{model::SequentialModel, ops};
 
 fn run_model(model_name: &str, display_name: &str, data: &[f32], true_label: usize) {
     println!("\n=== {display_name} Model ===");
@@ -7,7 +7,7 @@ fn run_model(model_name: &str, display_name: &str, data: &[f32], true_label: usi
     let mut model = SequentialModel::load(model_name, None).expect("Failed to load model");
 
     let prediction = model.predict(data).expect("Invalid prediction input");
-    let predicted = metrics::argmax(&prediction, 1).expect("Failed to get argmax")[0];
+    let predicted = ops::argmax(&prediction, 1).expect("Failed to get argmax")[0];
 
     println!("Predicted: {predicted} | Actual: {true_label}");
     println!("Class Probabilities:");
@@ -49,7 +49,7 @@ fn main() {
         println!();
     }
 
-    let true_label = metrics::argmax(&label, 1).expect("Failed to get argmax")[0];
+    let true_label = ops::argmax(&label, 1).expect("Failed to get argmax")[0];
 
     run_model("relu_model", "ReLU", &data, true_label);
     run_model("sigmoid_model", "Sigmoid", &data, true_label);

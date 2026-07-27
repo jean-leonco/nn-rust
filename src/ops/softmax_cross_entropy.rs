@@ -1,17 +1,17 @@
 use crate::core::{math, serialization};
 use core::ops::Range;
 
-/// Softmax layer metadata.
+/// Fused softmax cross-entropy operation.
 #[derive(Debug, Clone)]
-pub struct SoftmaxMeta {
+pub struct SoftmaxCrossEntropy {
     /// Relative activation range.
     pub(crate) relative_activation_range: Range<usize>,
     /// Output classes per row.
     pub(crate) output_dim: usize,
 }
 
-impl SoftmaxMeta {
-    /// Creates metadata for a softmax over `output_dim` classes.
+impl SoftmaxCrossEntropy {
+    /// Creates a fused softmax cross-entropy operation over `output_dim` classes.
     pub fn new(relative_activation_range: Range<usize>, output_dim: usize) -> Self {
         Self {
             relative_activation_range,
@@ -26,7 +26,7 @@ impl SoftmaxMeta {
     }
 }
 
-impl serialization::Encodable for SoftmaxMeta {
+impl serialization::Encodable for SoftmaxCrossEntropy {
     type Error = super::serialization::SerializationError;
 
     fn encoded_len(&self) -> usize {
@@ -55,17 +55,17 @@ impl serialization::Encodable for SoftmaxMeta {
 /// # Panics
 ///
 /// Panics if `output_dim` is zero or `activations.len() % output_dim != 0`.
-pub fn forward(meta: &SoftmaxMeta, activations: &mut [f32]) {
+pub fn forward(operation: &SoftmaxCrossEntropy, activations: &mut [f32]) {
     assert!(
-        meta.output_dim > 0,
+        operation.output_dim > 0,
         "softmax output dimension must be non-zero"
     );
     assert_eq!(
-        activations.len() % meta.output_dim,
+        activations.len() % operation.output_dim,
         0,
         "softmax input must contain whole rows"
     );
-    for row in &mut activations.chunks_mut(meta.output_dim) {
+    for row in &mut activations.chunks_mut(operation.output_dim) {
         let max = row.iter().fold(f32::NEG_INFINITY, |acc, &val| acc.max(val));
         let (chunks, mut remainder) = row.as_chunks_mut::<16>();
         for chunk in chunks {
@@ -117,18 +117,18 @@ mod tests {
 
     #[test]
     fn test_offsets() {
-        let meta = SoftmaxMeta::new(2..5, 3);
+        let operation = SoftmaxCrossEntropy::new(2..5, 3);
 
-        assert_eq!(meta.activation_range(1), 2..5);
-        assert_eq!(meta.activation_range(4), 8..20);
+        assert_eq!(operation.activation_range(1), 2..5);
+        assert_eq!(operation.activation_range(4), 8..20);
     }
 
     #[test]
     fn test_forward() {
-        let meta = SoftmaxMeta::new(0..6, 3);
+        let operation = SoftmaxCrossEntropy::new(0..6, 3);
         let mut activations = vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0];
 
-        forward(&meta, &mut activations);
+        forward(&operation, &mut activations);
 
         let sum1 = 1.0_f32.exp() + 2.0_f32.exp() + 3.0_f32.exp();
         let p0 = 1.0_f32.exp() / sum1;
@@ -161,13 +161,13 @@ mod tests {
 
     #[test]
     fn test_forward_and_backward() {
-        let meta = SoftmaxMeta::new(0..6, 3);
+        let operation = SoftmaxCrossEntropy::new(0..6, 3);
 
         let mut activations = vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0];
         let mut dz = vec![0.0; 6];
         let targets = vec![0.0, 0.0, 1.0, 0.0, 1.0, 0.0];
 
-        forward(&meta, &mut activations);
+        forward(&operation, &mut activations);
         backward(&mut dz, &activations, &targets);
 
         let sum1 = 1.0_f32.exp() + 2.0_f32.exp() + 3.0_f32.exp();
@@ -212,9 +212,9 @@ mod tests {
             numerical_grad[i] = (loss_plus - loss_minus) / (2.0 * eps);
         }
 
-        let meta = SoftmaxMeta::new(0..n_classes, n_classes);
+        let operation = SoftmaxCrossEntropy::new(0..n_classes, n_classes);
         let mut activations = inputs.clone();
-        forward(&meta, &mut activations);
+        forward(&operation, &mut activations);
 
         let mut dz = vec![0.0; n_classes];
         backward(&mut dz, &activations, &targets);

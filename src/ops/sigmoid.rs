@@ -2,15 +2,15 @@ use core::ops::{Range, RangeTo};
 
 use crate::core::{math, serialization};
 
-/// Sigmoid layer metadata.
+/// In-place sigmoid operation.
 #[derive(Debug, Clone)]
-pub struct SigmoidMeta {
+pub struct Sigmoid {
     /// Relative activation range.
     pub(crate) relative_activation_range: Range<usize>,
 }
 
-impl SigmoidMeta {
-    /// Creates metadata for an in-place sigmoid.
+impl Sigmoid {
+    /// Creates an in-place sigmoid operation.
     pub fn new(relative_activation_range: Range<usize>) -> Self {
         Self {
             relative_activation_range,
@@ -30,7 +30,7 @@ impl SigmoidMeta {
     }
 }
 
-impl serialization::Encodable for SigmoidMeta {
+impl serialization::Encodable for Sigmoid {
     type Error = super::serialization::SerializationError;
 
     fn encoded_len(&self) -> usize {
@@ -72,10 +72,10 @@ mod tests {
 
     #[test]
     fn test_offsets() {
-        let meta = SigmoidMeta::new(2..5);
+        let operation = Sigmoid::new(2..5);
 
-        assert_eq!(meta.activation_range(1), 2..5);
-        assert_eq!(meta.activation_range(3), 6..15);
+        assert_eq!(operation.activation_range(1), 2..5);
+        assert_eq!(operation.activation_range(3), 6..15);
     }
 
     #[test]

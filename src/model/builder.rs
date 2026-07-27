@@ -4,8 +4,8 @@ use crate::{
     core::ArenaLayout,
     model::{SessionCache, sequential::SequentialModel},
     ops::{
-        DenseMeta, DropoutMeta, Initialization, Operation, ReluMeta, SigmoidMeta, SoftmaxMeta,
-        dropout::DropoutError,
+        Dense, Dropout, Initialization, MeanSquaredError, Operation, Relu, Sigmoid,
+        SoftmaxCrossEntropy, dropout::DropoutError,
     },
 };
 
@@ -15,7 +15,9 @@ pub struct NoInput;
 pub struct HasInputSize;
 /// At least one dense layer added.
 pub struct HasInputLayer;
-/// Terminal softmax added.
+/// Softmax added.
+pub struct HasSoftmax;
+/// Terminal Loss added.
 pub struct HasLoss;
 
 #[derive(Debug)]
@@ -29,7 +31,7 @@ pub struct ModelBuilder<State> {
 }
 
 impl<State> ModelBuilder<State> {
-    fn add_dense(&mut self, output_dim: usize, initialization: Initialization) -> DenseMeta {
+    fn add_dense(&mut self, output_dim: usize, initialization: Initialization) -> Dense {
         assert!(output_dim > 0, "dense output dimension must be non-zero");
         let input_dim = self.current_dim;
         self.current_dim = output_dim;
@@ -39,7 +41,7 @@ impl<State> ModelBuilder<State> {
         let input_range = self.layout.last_activation_range.clone();
         let output_range = self.layout.reserve_activations(output_dim);
 
-        DenseMeta::new(
+        Dense::new(
             input_dim,
             output_dim,
             input_range,
@@ -102,8 +104,8 @@ impl ModelBuilder<HasInputSize> {
         output_dim: usize,
         initialization: Initialization,
     ) -> ModelBuilder<HasInputLayer> {
-        let dense_meta = self.add_dense(output_dim, initialization);
-        self.add_operation(Operation::Input(dense_meta))
+        let operation = self.add_dense(output_dim, initialization);
+        self.add_operation(Operation::Input(operation))
     }
 }
 
@@ -114,20 +116,20 @@ impl ModelBuilder<HasInputLayer> {
         output_dim: usize,
         initialization: Initialization,
     ) -> ModelBuilder<HasInputLayer> {
-        let dense_meta = self.add_dense(output_dim, initialization);
-        self.add_operation(Operation::Dense(dense_meta))
+        let operation = self.add_dense(output_dim, initialization);
+        self.add_operation(Operation::Dense(operation))
     }
 
     /// Adds a Sigmoid activation.
     pub fn sigmoid(self) -> ModelBuilder<HasInputLayer> {
         let activation_range = self.layout.last_activation_range.clone();
-        self.add_operation(Operation::Sigmoid(SigmoidMeta::new(activation_range)))
+        self.add_operation(Operation::Sigmoid(Sigmoid::new(activation_range)))
     }
 
     /// Adds a `ReLU` activation.
     pub fn relu(self) -> ModelBuilder<HasInputLayer> {
         let activation_range = self.layout.last_activation_range.clone();
-        self.add_operation(Operation::Relu(ReluMeta::new(activation_range)))
+        self.add_operation(Operation::Relu(Relu::new(activation_range)))
     }
 
     /// Adds a Dropout layer. `dropout_rate` must be in `0.0..1.0`.
@@ -138,19 +140,41 @@ impl ModelBuilder<HasInputLayer> {
         let activation_range = self.layout.last_activation_range.clone();
         let mask_range = self.layout.reserve_masks(self.current_dim);
 
-        Ok(self.add_operation(Operation::Dropout(DropoutMeta::new(
+        Ok(self.add_operation(Operation::Dropout(Dropout::new(
             dropout_rate,
             activation_range,
             mask_range,
         )?)))
     }
 
-    /// Adds a Softmax output.
-    pub fn softmax(self) -> ModelBuilder<HasLoss> {
+    /// Adds a Softmax layer.
+    pub fn softmax(self) -> ModelBuilder<HasSoftmax> {
+        ModelBuilder {
+            layout: self.layout,
+            current_dim: self.current_dim,
+            ops: self.ops,
+            session_cache: self.session_cache,
+            _state: PhantomData,
+        }
+    }
+
+    /// Adds the final Mean Squared Error loss.
+    pub fn mse(self) -> ModelBuilder<HasLoss> {
+        let activation_range = self.layout.last_activation_range.clone();
+
+        self.add_operation(Operation::MeanSquaredError(MeanSquaredError::new(
+            activation_range,
+        )))
+    }
+}
+
+impl ModelBuilder<HasSoftmax> {
+    /// Adds the Softmax Cross-entropy loss.
+    pub fn cross_entropy(self) -> ModelBuilder<HasLoss> {
         let activation_range = self.layout.last_activation_range.clone();
         let output_dim = self.current_dim;
 
-        self.add_operation(Operation::Softmax(SoftmaxMeta::new(
+        self.add_operation(Operation::SoftmaxCrossEntropy(SoftmaxCrossEntropy::new(
             activation_range,
             output_dim,
         )))
@@ -182,6 +206,7 @@ mod tests {
             .dense(5, Initialization::He)
             .relu()
             .softmax()
+            .cross_entropy()
             .build();
 
         assert_eq!(model.layout.params_len, 55);

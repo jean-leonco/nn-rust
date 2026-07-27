@@ -4,9 +4,9 @@ use crate::core::{cbrng, serialization};
 use core::ops::{Range, RangeTo};
 use std::simd::prelude::*;
 
-/// Dropout layer metadata.
+/// Dropout operation.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DropoutMeta {
+pub struct Dropout {
     /// Survival probability (`1 - dropout_rate`).
     pub survival_rate: f32,
     /// Inverse survival probability (`1 / survival_rate`).
@@ -33,8 +33,8 @@ impl std::fmt::Display for DropoutError {
     }
 }
 
-impl DropoutMeta {
-    /// Creates dropout metadata. `dropout_rate` must be in `0.0..1.0`.
+impl Dropout {
+    /// Creates a dropout operation. `dropout_rate` must be in `0.0..1.0`.
     ///
     /// # Errors
     ///
@@ -84,7 +84,7 @@ pub enum DropoutEncodingError {
     InvalidDropout(#[from] DropoutError),
 }
 
-impl serialization::Encodable for DropoutMeta {
+impl serialization::Encodable for Dropout {
     type Error = DropoutEncodingError;
 
     fn encoded_len(&self) -> usize {
@@ -110,7 +110,7 @@ impl serialization::Encodable for DropoutMeta {
 
 /// Applies dropout in-place.
 pub fn forward(
-    meta: &DropoutMeta,
+    operation: &Dropout,
     activations: &mut [f32],
     masks: &mut [u8],
     step: usize,
@@ -120,7 +120,7 @@ pub fn forward(
 
     let mut counters = [
         u32x8::splat(0),
-        u32x8::splat(meta.relative_activation_range.start as u32),
+        u32x8::splat(operation.relative_activation_range.start as u32),
         u32x8::splat(step as u32),
         u32x8::splat(0_u32),
     ];
@@ -131,12 +131,12 @@ pub fn forward(
     let mut block_idx = 0;
     for (activation_chunk, mask_chunk) in activation_chunks.iter_mut().zip(mask_chunks) {
         counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
-        let bernoulli_masks = cbrng::bernoulli(counters, key_schedule, meta.survival_rate);
+        let bernoulli_masks = cbrng::bernoulli(counters, key_schedule, operation.survival_rate);
 
         for i in 0..32 {
             let mask = bernoulli_masks[i];
             mask_chunk[i] = mask;
-            activation_chunk[i] *= u32::from(mask) as f32 * meta.inv_survival_rate;
+            activation_chunk[i] *= u32::from(mask) as f32 * operation.inv_survival_rate;
         }
 
         block_idx += 1;
@@ -145,7 +145,7 @@ pub fn forward(
     if !remaining_activations.is_empty() {
         counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
         let bernoulli_masks =
-            cbrng::bernoulli(counters, key_schedule, meta.survival_rate).to_array();
+            cbrng::bernoulli(counters, key_schedule, operation.survival_rate).to_array();
         let bernoulli_masks_slice = &bernoulli_masks[..remaining_activations.len()];
 
         for ((activation, mask), remaining_mask) in remaining_activations
@@ -154,15 +154,15 @@ pub fn forward(
             .zip(bernoulli_masks_slice)
         {
             *mask = *remaining_mask;
-            *activation *= u32::from(*mask) as f32 * meta.inv_survival_rate;
+            *activation *= u32::from(*mask) as f32 * operation.inv_survival_rate;
         }
     }
 }
 
 /// Applies the dropout derivative in-place.
-pub fn backward(meta: &DropoutMeta, dz: &mut [f32], da: &[f32], masks: &[u8]) {
+pub fn backward(operation: &Dropout, dz: &mut [f32], da: &[f32], masks: &[u8]) {
     for ((dz, da), mask) in dz.iter_mut().zip(da.iter()).zip(masks.iter()) {
-        *dz = da * f32::from(*mask) * meta.inv_survival_rate;
+        *dz = da * f32::from(*mask) * operation.inv_survival_rate;
     }
 }
 
@@ -172,30 +172,30 @@ mod tests {
 
     #[test]
     fn test_new_and_errors() {
-        assert!(DropoutMeta::new(0.2, 1..4, 10..13).is_ok());
-        assert!(DropoutMeta::new(1.5, 1..4, 10..13).is_err());
+        assert!(Dropout::new(0.2, 1..4, 10..13).is_ok());
+        assert!(Dropout::new(1.5, 1..4, 10..13).is_err());
     }
 
     #[test]
     fn test_offsets() {
-        let meta = DropoutMeta::new(0.5, 2..5, 4..8).unwrap();
+        let operation = Dropout::new(0.5, 2..5, 4..8).unwrap();
 
-        assert_eq!(meta.activation_range(1), 2..5);
-        assert_eq!(meta.mask_range(1), 4..8);
-        assert_eq!(meta.activation_range(3), 6..15);
-        assert_eq!(meta.mask_range(3), 12..24);
+        assert_eq!(operation.activation_range(1), 2..5);
+        assert_eq!(operation.mask_range(1), 4..8);
+        assert_eq!(operation.activation_range(3), 6..15);
+        assert_eq!(operation.mask_range(3), 12..24);
     }
 
     #[test]
     fn test_forward() {
-        let meta = DropoutMeta::new(0.5, 0..4, 0..4).unwrap();
+        let operation = Dropout::new(0.5, 0..4, 0..4).unwrap();
         let mut activations = vec![1.0, 2.0, 3.0, 4.0];
         let mut mask = vec![0; 4];
         let step = 0;
         let seed = [u32x8::splat(0); 2];
         let key_schedule = cbrng::build_key_schedule(seed);
 
-        forward(&meta, &mut activations, &mut mask, step, &key_schedule);
+        forward(&operation, &mut activations, &mut mask, step, &key_schedule);
 
         assert_eq!(mask, vec![1, 0, 1, 0]);
         assert_eq!(activations, vec![2.0, 0.0, 6.0, 0.0]);
@@ -203,19 +203,19 @@ mod tests {
 
     #[test]
     fn test_backward() {
-        let meta = DropoutMeta::new(0.5, 0..4, 0..4).unwrap();
+        let operation = Dropout::new(0.5, 0..4, 0..4).unwrap();
         let mut dz = vec![0.0; 4];
         let da = vec![1.5, 2.5, 3.5, 4.5];
         let mask = vec![1, 0, 1, 0];
 
-        backward(&meta, &mut dz, &da, &mask);
+        backward(&operation, &mut dz, &da, &mask);
 
         assert_eq!(dz, vec![3.0, 0.0, 7.0, 0.0]);
     }
 
     #[test]
     fn test_forward_and_backward() {
-        let meta = DropoutMeta::new(0.5, 0..4, 0..4).unwrap();
+        let operation = Dropout::new(0.5, 0..4, 0..4).unwrap();
 
         let mut activations = vec![1.0, 2.0, 3.0, 4.0];
         let mut mask = vec![0; 4];
@@ -226,8 +226,8 @@ mod tests {
         let mut dz = vec![0.0; 4];
         let da = vec![1.5, 2.5, 3.5, 4.5];
 
-        forward(&meta, &mut activations, &mut mask, step, &key_schedule);
-        backward(&meta, &mut dz, &da, &mask);
+        forward(&operation, &mut activations, &mut mask, step, &key_schedule);
+        backward(&operation, &mut dz, &da, &mask);
 
         assert_eq!(mask, vec![1, 0, 1, 0]);
         assert_eq!(activations, vec![2.0, 0.0, 6.0, 0.0]);

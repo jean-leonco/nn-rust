@@ -1,5 +1,4 @@
 use nn_rust::{
-    core::TrainMetrics,
     dataset::mnist::MnistDataset,
     model::{SequentialModel, Session},
     ops::Initialization,
@@ -31,6 +30,7 @@ fn main() {
         .relu()
         .dense(10, Initialization::He)
         .softmax()
+        .cross_entropy()
         .build();
     model
         .initialize_params(&mut rng)
@@ -42,12 +42,12 @@ fn main() {
     let mut x = vec![0.0f32; BATCH_SIZE * INPUT_SIZE];
 
     for epoch in 0..EPOCHS {
-        let mut train_metrics = TrainMetrics::new(BATCH_SIZE);
+        let mut metrics = model.loss_kind().metrics(BATCH_SIZE);
         for (x_batch, y) in dataset.train_batches(&mut rng) {
             MnistDataset::convert_to_px(x_batch, &mut x);
 
             let prediction = session.forward(&model.train_ops, &mut model.params, &x);
-            train_metrics
+            metrics
                 .update(prediction, y)
                 .expect("metrics shape mismatch");
 
@@ -55,10 +55,10 @@ fn main() {
             optimizer.step(&mut model.params, gradients);
         }
 
-        println!("Epoch {epoch}/{EPOCHS}: {train_metrics}");
+        println!("Epoch {}/{EPOCHS}: {metrics}", epoch + 1);
     }
 
-    let mut validation_metrics = TrainMetrics::new(BATCH_SIZE);
+    let mut validation_metrics = model.loss_kind().metrics(BATCH_SIZE);
 
     for (x_validation, y) in dataset.validation_batches() {
         MnistDataset::convert_to_px(x_validation, &mut x);

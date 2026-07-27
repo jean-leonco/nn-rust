@@ -4,11 +4,11 @@ use crate::core::serialization;
 use crate::ops::{Initialization, gemm};
 use thiserror::Error;
 
-/// Dense layer metadata.
+/// Dense operation.
 ///
 /// Arena ranges are relative. Multiply by `batch_size` for absolute indices.
 #[derive(Debug, Clone)]
-pub struct DenseMeta {
+pub struct Dense {
     /// Input dimension. Equal to the connected layer output dimension.
     pub input_dim: usize,
     /// Output dimension.
@@ -25,8 +25,8 @@ pub struct DenseMeta {
     pub initialization: Initialization,
 }
 
-impl DenseMeta {
-    /// Creates metadata for a dense layer.
+impl Dense {
+    /// Creates a dense operation.
     pub fn new(
         input_dim: usize,
         output_dim: usize,
@@ -83,7 +83,7 @@ pub enum DenseEncodingError {
     InvalidInitialization(String),
 }
 
-impl serialization::Encodable for DenseMeta {
+impl serialization::Encodable for Dense {
     type Error = DenseEncodingError;
 
     fn encoded_len(&self) -> usize {
@@ -139,32 +139,32 @@ impl serialization::Encodable for DenseMeta {
 ///
 /// Panics if `bias.len() != output_dim`.
 pub fn forward(
-    meta: &DenseMeta,
+    operation: &Dense,
     batch_size: usize,
     input: &[f32],
     weights: &[f32],
     bias: &[f32],
     output: &mut [f32],
 ) {
-    assert_eq!(meta.output_dim, bias.len());
+    assert_eq!(operation.output_dim, bias.len());
 
     gemm::sgemm(
         cblas::Transpose::None,
         cblas::Transpose::Ordinary,
         batch_size,
-        meta.output_dim,
-        meta.input_dim,
+        operation.output_dim,
+        operation.input_dim,
         1.0,
         input,
-        meta.input_dim,
+        operation.input_dim,
         weights,
-        meta.input_dim,
+        operation.input_dim,
         0.0,
         output,
-        meta.output_dim,
+        operation.output_dim,
     );
 
-    for row in output.chunks_mut(meta.output_dim) {
+    for row in output.chunks_mut(operation.output_dim) {
         for (out, bias) in row.iter_mut().zip(bias.iter()) {
             *out += bias;
         }
@@ -180,34 +180,34 @@ pub fn forward(
 ///
 /// Panics if `db.len() != output_dim`.
 pub fn backward_parameters(
-    meta: &DenseMeta,
+    operation: &Dense,
     batch_size: usize,
     dw: &mut [f32],
     db: &mut [f32],
     dz: &[f32],
     input: &[f32],
 ) {
-    assert_eq!(meta.output_dim, db.len());
+    assert_eq!(operation.output_dim, db.len());
 
     gemm::sgemm(
         cblas::Transpose::Ordinary,
         cblas::Transpose::None,
-        meta.output_dim,
-        meta.input_dim,
+        operation.output_dim,
+        operation.input_dim,
         batch_size,
         1.0 / batch_size as f32,
         dz,
-        meta.output_dim,
+        operation.output_dim,
         input,
-        meta.input_dim,
+        operation.input_dim,
         0.0,
         dw,
-        meta.input_dim,
+        operation.input_dim,
     );
 
     db.fill(0.0);
     let scale = 1.0 / batch_size as f32;
-    for row in dz.chunks(meta.output_dim) {
+    for row in dz.chunks(operation.output_dim) {
         for (db_j, dz_j) in db.iter_mut().zip(row) {
             *db_j += scale * dz_j;
         }
@@ -219,7 +219,7 @@ pub fn backward_parameters(
 /// Shapes: `dZ [B, output_dim]`, `W [output_dim, input_dim]`,
 /// `dA [B, input_dim]`. All row-major.
 pub fn backward_input(
-    meta: &DenseMeta,
+    operation: &Dense,
     batch_size: usize,
     da: &mut [f32],
     dz: &[f32],
@@ -229,16 +229,16 @@ pub fn backward_input(
         cblas::Transpose::None,
         cblas::Transpose::None,
         batch_size,
-        meta.input_dim,
-        meta.output_dim,
+        operation.input_dim,
+        operation.output_dim,
         1.0,
         dz,
-        meta.output_dim,
+        operation.output_dim,
         weights,
-        meta.input_dim,
+        operation.input_dim,
         0.0,
         da,
-        meta.input_dim,
+        operation.input_dim,
     );
 }
 
@@ -257,37 +257,44 @@ mod tests {
 
     #[test]
     fn test_offsets() {
-        let meta = DenseMeta::new(3, 2, 0..4, 4..8, 1..4, 4..6, Initialization::He);
+        let operation = Dense::new(3, 2, 0..4, 4..8, 1..4, 4..6, Initialization::He);
 
-        assert_eq!(meta.activation_split_offset(2), 8);
-        assert_eq!(meta.input_range(2), 0..8);
-        assert_eq!(meta.output_range(2), 0..8);
+        assert_eq!(operation.activation_split_offset(2), 8);
+        assert_eq!(operation.input_range(2), 0..8);
+        assert_eq!(operation.output_range(2), 0..8);
     }
 
     #[test]
     fn test_forward() {
-        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
+        let operation = Dense::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
         let input = vec![1.0, 2.0, 3.0, 4.0];
         let weights = vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let bias = vec![0.5, -0.5, 1.0];
         let mut activations = vec![0.0; 6];
 
-        forward(&meta, batch_size, &input, &weights, &bias, &mut activations);
+        forward(
+            &operation,
+            batch_size,
+            &input,
+            &weights,
+            &bias,
+            &mut activations,
+        );
 
         assert_close(&activations, &[1.5, 1.5, 4.0, 3.5, 3.5, 8.0]);
     }
 
     #[test]
     fn test_backward_parameters() {
-        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
+        let operation = Dense::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
         let dz = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let input = vec![1.0, 0.0, 0.0, 1.0];
         let mut dw = vec![0.0; 6];
         let mut db = vec![0.0; 3];
 
-        backward_parameters(&meta, batch_size, &mut dw, &mut db, &dz, &input);
+        backward_parameters(&operation, batch_size, &mut dw, &mut db, &dz, &input);
 
         assert_close(&dw, &[0.5, 2.0, 1.0, 2.5, 1.5, 3.0]);
         assert_close(&db, &[2.5, 3.5, 4.5]);
@@ -295,20 +302,20 @@ mod tests {
 
     #[test]
     fn test_backward_input() {
-        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
+        let operation = Dense::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
         let dz = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let weights = vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let mut da = vec![0.0; 4];
 
-        backward_input(&meta, batch_size, &mut da, &dz, &weights);
+        backward_input(&operation, batch_size, &mut da, &dz, &weights);
 
         assert_close(&da, &[4.0, 5.0, 10.0, 11.0]);
     }
 
     #[test]
     fn test_forward_and_backward_parameters() {
-        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
+        let operation = Dense::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
 
         let input = vec![1.0, 2.0, 3.0, 4.0];
@@ -319,8 +326,15 @@ mod tests {
         let mut dw = vec![0.0; 6];
         let mut db = vec![0.0; 3];
 
-        forward(&meta, batch_size, &input, &weights, &bias, &mut activations);
-        backward_parameters(&meta, batch_size, &mut dw, &mut db, &dz, &input);
+        forward(
+            &operation,
+            batch_size,
+            &input,
+            &weights,
+            &bias,
+            &mut activations,
+        );
+        backward_parameters(&operation, batch_size, &mut dw, &mut db, &dz, &input);
 
         assert_close(&activations, &[1.5, 1.5, 4.0, 3.5, 3.5, 8.0]);
         assert_close(&dw, &[6.5, 9.0, 8.5, 12.0, 10.5, 15.0]);
@@ -329,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_forward_and_backward_input() {
-        let meta = DenseMeta::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
+        let operation = Dense::new(2, 3, 0..0, 0..0, 0..0, 0..0, Initialization::He);
         let batch_size = 2;
 
         let input = vec![1.0, 2.0, 3.0, 4.0];
@@ -339,8 +353,15 @@ mod tests {
         let dz = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let mut da = vec![0.0; 4];
 
-        forward(&meta, batch_size, &input, &weights, &bias, &mut activations);
-        backward_input(&meta, batch_size, &mut da, &dz, &weights);
+        forward(
+            &operation,
+            batch_size,
+            &input,
+            &weights,
+            &bias,
+            &mut activations,
+        );
+        backward_input(&operation, batch_size, &mut da, &dz, &weights);
 
         assert_close(&activations, &[1.5, 1.5, 4.0, 3.5, 3.5, 8.0]);
         assert_close(&da, &[4.0, 5.0, 10.0, 11.0]);
