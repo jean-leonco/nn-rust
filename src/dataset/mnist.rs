@@ -28,6 +28,15 @@ pub enum MnistDatasetError {
         "Invalid dimensions resulting in overflow or zero-size: count {0}, rows {1} and columns {2}"
     )]
     InvalidDimensions(usize, usize, usize),
+
+    #[error("Batch size must be non-zero")]
+    InvalidBatchSize,
+
+    #[error("Label {0} is outside 0..{NUM_OF_CLASSES}")]
+    InvalidLabel(u8),
+
+    #[error("Image count {images} does not match label count {labels}")]
+    CountMismatch { images: usize, labels: usize },
 }
 
 #[derive(Debug)]
@@ -45,11 +54,28 @@ pub struct MnistDataset {
 
 impl MnistDataset {
     pub fn load(batch_size: usize) -> Result<Self, MnistDatasetError> {
+        if batch_size == 0 {
+            return Err(MnistDatasetError::InvalidBatchSize);
+        }
         let (train_x, n_train_imgs) = Self::load_images("mnist/train-images.idx3-ubyte")?;
         let train_y = Self::load_labels("mnist/train-labels.idx1-ubyte")?;
 
         let (validation_x, n_validation_imgs) = Self::load_images("mnist/t10k-images.idx3-ubyte")?;
         let validation_y = Self::load_labels("mnist/t10k-labels.idx1-ubyte")?;
+        let n_train_labels = train_y.len() / NUM_OF_CLASSES;
+        let n_validation_labels = validation_y.len() / NUM_OF_CLASSES;
+        if n_train_imgs != n_train_labels {
+            return Err(MnistDatasetError::CountMismatch {
+                images: n_train_imgs,
+                labels: n_train_labels,
+            });
+        }
+        if n_validation_imgs != n_validation_labels {
+            return Err(MnistDatasetError::CountMismatch {
+                images: n_validation_imgs,
+                labels: n_validation_labels,
+            });
+        }
 
         Ok(Self {
             batch_size,
@@ -77,9 +103,20 @@ impl MnistDataset {
         let mut data = vec![0u8; count];
         reader.read_exact(&mut data)?;
 
-        let mut labels = vec![0.0; count * NUM_OF_CLASSES];
+        let labels_len =
+            count
+                .checked_mul(NUM_OF_CLASSES)
+                .ok_or(MnistDatasetError::InvalidDimensions(
+                    count,
+                    1,
+                    NUM_OF_CLASSES,
+                ))?;
+        let mut labels = vec![0.0; labels_len];
         for (i, label) in data.iter().enumerate() {
             let label = *label as usize;
+            if label >= NUM_OF_CLASSES {
+                return Err(MnistDatasetError::InvalidLabel(data[i]));
+            }
             labels[i * NUM_OF_CLASSES + label] = 1.0;
         }
 
@@ -104,6 +141,9 @@ impl MnistDataset {
         let rows = serialization::read_u32_be(&mut reader)? as usize;
         let cols = serialization::read_u32_be(&mut reader)? as usize;
 
+        if count == 0 || rows == 0 || cols == 0 {
+            return Err(MnistDatasetError::InvalidDimensions(count, rows, cols));
+        }
         let size = count
             .checked_mul(rows)
             .and_then(|n| n.checked_mul(cols))
@@ -112,12 +152,9 @@ impl MnistDataset {
         let mut images = vec![0u8; size];
         reader.read_exact(&mut images)?;
 
-        if images.len() != size {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "File size mismatch",
-            )
-            .into());
+        let mut remaining_bytes = Vec::with_capacity(1);
+        if reader.read_to_end(&mut remaining_bytes)? > 0 {
+            return Err(MnistDatasetError::TrailingBytes(remaining_bytes.len()));
         }
 
         Ok((images, count))
@@ -178,5 +215,18 @@ impl MnistDataset {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_zero_batch_size_before_reading_files() {
+        assert!(matches!(
+            MnistDataset::load(0),
+            Err(MnistDatasetError::InvalidBatchSize)
+        ));
     }
 }

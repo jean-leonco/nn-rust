@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::{Read, Seek, Write},
     path::Path,
 };
 
@@ -25,6 +25,19 @@ pub enum SequentialModelSerializationError {
     Serialization(#[from] serialization::SerializationError),
     #[error("Op serialization error: {0}")]
     OpSerialization(#[from] OpSerializationError),
+    #[error("Invalid model: {0}")]
+    InvalidModel(String),
+}
+
+#[derive(Error, Debug, PartialEq)]
+/// Errors during model inference.
+pub enum PredictionError {
+    #[error("Prediction input is empty")]
+    EmptyInput,
+    #[error("Model does not start with an input operation")]
+    InvalidModel,
+    #[error("Input length {actual} is not divisible by model input dimension {input_dim}")]
+    InvalidInputLength { actual: usize, input_dim: usize },
 }
 
 const MAGIC_NUMBER: [u8; 4] = *b"NNRS";
@@ -85,11 +98,17 @@ impl SequentialModel {
     }
 
     /// Runs inference.
-    pub fn predict(&mut self, x: &[f32]) -> Vec<f32> {
-        let input_dim = match &self.train_ops[0] {
-            Operation::Input(meta) => meta.input_dim,
-            _ => panic!("First layer must be Input"),
-        };
+    pub fn predict(&mut self, x: &[f32]) -> Result<Vec<f32>, PredictionError> {
+        if x.is_empty() {
+            return Err(PredictionError::EmptyInput);
+        }
+        let input_dim = self.input_dim().ok_or(PredictionError::InvalidModel)?;
+        if !x.len().is_multiple_of(input_dim) {
+            return Err(PredictionError::InvalidInputLength {
+                actual: x.len(),
+                input_dim,
+            });
+        }
         let batch_size = x.len() / input_dim;
 
         let session = if let Some(session) = self.session_cache.get(batch_size) {
@@ -100,9 +119,9 @@ impl SequentialModel {
             self.session_cache.get(batch_size).unwrap()
         };
 
-        session
+        Ok(session
             .forward(&self.inference_ops, &mut self.params, x)
-            .to_vec()
+            .to_vec())
     }
 
     /// Saves the model to `path`.
@@ -154,7 +173,21 @@ impl SequentialModel {
         }
 
         let n_params = serialization::read_u32(&mut file)? as usize;
-        let mut params_bytes = vec![0u8; n_params * 4];
+
+        let params_bytes_len = n_params
+            .checked_mul(std::mem::size_of::<f32>())
+            .ok_or_else(|| {
+                SequentialModelSerializationError::InvalidModel(
+                    "parameter byte count overflows usize".to_owned(),
+                )
+            })?;
+        let remaining = file.metadata()?.len() - file.stream_position()?;
+        if remaining != params_bytes_len as u64 {
+            return Err(SequentialModelSerializationError::InvalidModel(
+                "parameter data length is inconsistent".to_owned(),
+            ));
+        }
+        let mut params_bytes = vec![0u8; params_bytes_len];
         file.read_exact(&mut params_bytes)?;
         let params: Vec<f32> = bytemuck::cast_slice(&params_bytes).to_vec();
 
@@ -165,6 +198,13 @@ impl SequentialModel {
             params,
             session_cache: session_cache.unwrap_or_default(),
         })
+    }
+
+    fn input_dim(&self) -> Option<usize> {
+        match self.train_ops.first() {
+            Some(Operation::Input(meta)) => Some(meta.input_dim),
+            _ => None,
+        }
     }
 }
 

@@ -30,6 +30,7 @@ pub struct ModelBuilder<State> {
 
 impl<State> ModelBuilder<State> {
     fn add_dense(&mut self, output_dim: usize, initialization: Initialization) -> DenseMeta {
+        assert!(output_dim > 0, "dense output dimension must be non-zero");
         let input_dim = self.current_dim;
         self.current_dim = output_dim;
 
@@ -82,6 +83,7 @@ impl ModelBuilder<NoInput> {
 
     /// Sets the input dimension.
     pub fn input(mut self, dim: usize) -> ModelBuilder<HasInputSize> {
+        assert!(dim > 0, "input dimension must be non-zero");
         self.layout.reserve_activations(dim);
         ModelBuilder {
             layout: self.layout,
@@ -185,5 +187,17 @@ mod tests {
         assert_eq!(model.layout.params_len, 55);
         assert_eq!(model.layout.activations_len, 15);
         assert_eq!(model.layout.max_neurons, 10);
+    }
+
+    #[test]
+    #[should_panic(expected = "input dimension must be non-zero")]
+    fn rejects_zero_input_dimension() {
+        let _ = ModelBuilder::new().input(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "dense output dimension must be non-zero")]
+    fn rejects_zero_dense_dimension() {
+        let _ = ModelBuilder::new().input(10).dense(0, Initialization::He);
     }
 }

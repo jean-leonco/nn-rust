@@ -1,87 +1,124 @@
 # nn-rust
 
-nn-rust is a toy neural network library written in Rust. This project was built for educational purposes to understand the internals of deep learning, backpropagation, and matrix operations.
+`nn-rust` is a small neural network library written in Rust. It implements forward propagation, backpropagation, and matrix operations without a high-level machine learning framework.
 
 ## Features
 
-- Built from Scratch: Understanding the core logic behind neural networks without high-level frameworks.
-- Modular Architecture: A chainable builder pattern to construct custom models.
-- Layer Support:
-  - Dense (Fully Connected) Layers
-  - Activation Functions: ReLU, Sigmoid
-  - Loss Layer: Softmax Cross Entropy
-- Hardware Acceleration: Leverages `ndarray` with BLAS (Accelerate on macOS, OpenBLAS on Linux/Windows).
-- MNIST Integration: Includes a specialized loader for the MNIST handwritten digit dataset.
+- Sequential models with a typed builder
+- Dense layers
+- ReLU and sigmoid activations
+- Dropout
+- Softmax with cross-entropy
+- SGD
+- Model serialization
+- MNIST loading and example executables
 
-## Prerequisites
+## Implementation notes
 
-- Rust: Latest stable version.
-- BLAS Backend:
-  - macOS: Uses the built-in `accelerate` framework automatically.
-  - Linux: Requires [OpenBLAS](http://www.openmathlib.org/OpenBLAS/docs/install/).
+Models compile into a linear operation plan. Parameters and temporary values use contiguous arenas. A training session allocates its working memory once and reuses it across batches.
 
-## Quick Start
+Dense layers delegate matrix multiplication to CBLAS. They account for most training time as networks become wider. The smaller element-wise operations work on contiguous slices so LLVM can auto-vectorize them. The exponential approximation and dropout generator use portable SIMD directly.
 
-1.  Clone the repo:
+Sigmoid and softmax use the Schraudolph exponential approximation. This trades some numerical accuracy for lower computation cost. Dropout uses a counter-based Philox generator. It derives masks from the seed, operation range, and training step without storing mutable state for every value.
 
-    ```sh
-    git clone https://github.com/jean-leonco/nn-rust.git
-    cd nn-rust
-    ```
+Portable SIMD currently requires the nightly Rust toolchain.
 
-2.  Build: Build the project in release mode for best performance.
+## Build
 
-    ```sh
-    cargo build --release
-    ```
+Install a C compiler, Fortran compiler, and `make`. The Linux build compiles a static OpenBLAS dependency. macOS uses Accelerate.
 
-3.  Train: Run the training binary to train a ReLU and a Sigmoid model on MNIST.
+```sh
+cargo build --release
+```
 
-    ```sh
-    ./target/release/train
-    ```
+## Train and predict
 
-4.  Predict: Run the models and predict on a test image:
-    ```sh
-    ./target/release/predict
-    ```
+Run the training with:
 
-## Code Structure
+```sh
+cargo run --release --bin train
+```
 
-- `src/bin/`: Example executables (`train.rs` and `predict.rs`) demonstrating how to use the library.
-- `src/dataloader/`: Contains the MNIST `DataLoader` struct implementation.
-- `src/layer/`: Implementations of Dense, ReLU, and Sigmoid layers.
-- `src/model/`: Contains the `Model` struct and `Builder` implementation.
+The executable writes `relu_model` and `sigmoid_model` in the current directory.
 
-## Benchmarks
+Run inference on `test_image.png`:
 
-Comparing performance between Linux (OpenBLAS) and macOS (Accelerate). The macOS build leverages the Apple Accelerate framework, resulting in significantly faster training times for matrix-heavy operations.
+```sh
+cargo run --release --bin predict
+```
 
-### System Specs
+The main model construction API is:
 
-- System A (Linux): AMD Ryzen 5 5600X | Linux 6.17.10
-- System B (macOS): Apple M3 Pro (5P + 6E Cores) | macOS
+```rust
+use nn_rust::{model::SequentialModel, ops::Initialization};
 
-### Training Performance (15 Epochs)
+let model = SequentialModel::builder()
+    .input(784)
+    .dense(128, Initialization::He)
+    .relu()
+    .dropout(0.2)?
+    .dense(10, Initialization::He)
+    .softmax()
+    .build();
 
-| System            | Wall Clock Time | Peak Memory |
-| :---------------- | :-------------- | :---------- |
-| AMD Ryzen 5 5600X | 20.96s          | ~282 MB     |
-| Apple M3 Pro      | 4.36s           | ~318 MB     |
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
-Final Model Stats (M3 Pro Run):
+## Performance
 
-| Model   | Final Train Loss | Final Train Acc | Validation Loss | Validation Acc |
-| :------ | :--------------- | :-------------- | :-------------- | :------------- |
-| ReLU    | 0.0514           | 98.59%          | 0.0803          | 97.49%         |
-| Sigmoid | 0.1625           | 95.32%          | 0.1670          | 94.91%         |
+Build with `--release`. The Linux runs set `OPENBLAS_NUM_THREADS=8` to match the eight physical cores. The remaining operations run on the calling thread. Accelerate manages its own execution on macOS.
 
-### Inference Performance
+### Workloads
 
-- Wall Clock Time: < 0.01s on both systems
-- Peak Memory Usage: ~8 MB on both systems
+| Executable    | Network                            | Dense layers | Parameters | Epochs |
+| ------------- | ---------------------------------- | -----------: | ---------: | -----: |
+| `train`       | ReLU: 784 → 128 → 64 → 10          |            3 |    109,386 |     50 |
+| `train`       | Sigmoid: 784 → 256 → 64 → 10       |            3 |    218,058 |     50 |
+| `train_large` | ReLU: 784 → 2048 → 1024 → 512 → 10 |            4 |  4,235,786 |     20 |
 
-| Model   | Predicted | Actual | Result                |
-| :------ | :-------- | :----- | :-------------------- |
-| ReLU    | 3         | 3      | Correct (76.0% conf)  |
-| Sigmoid | 3         | 3      | Correct (83.26% conf) |
+The `train` time covers both listed networks.
+
+### Training results
+
+| System                  | Executable    |    Time | Peak memory |
+| ----------------------- | ------------- | ------: | ----------: |
+| Ryzen 7 9700X, OpenBLAS | `train`       |  6.53 s |    76.3 MiB |
+| Apple M3, Accelerate    | `train`       |  8.82 s |    65.9 MiB |
+| Ryzen 7 9700X, OpenBLAS | `train_large` | 20.90 s |   115.0 MiB |
+| Apple M3, Accelerate    | `train_large` | 29.90 s |   104.1 MiB |
+
+The Ryzen completed `train` 1.35 times faster than the M3. It completed `train_large` 1.43 times faster. The Linux process used about eight cores in both runs. The larger GEMMs keep those OpenBLAS workers busy for more of the run.
+
+The large network has about 13 times as many parameters as both smaller networks combined. It took 3.2 times longer on Linux and 3.4 times longer on macOS, but it ran for 20 epochs instead of 50. The times therefore do not scale directly with parameter count.
+
+Peak memory rose by about 39 MiB on each system for `train_large`. This similar increase reflects the larger parameter and session arenas. macOS used 10 to 11 MiB less peak memory, but took longer for both workloads.
+
+On Linux, `train_large` reached 2.3 instructions per cycle, compared with 1.7 for `train`. Its L1 data-cache miss rate rose from 15.0% to 16.7%. The wider GEMMs achieved higher instruction throughput despite the added cache pressure.
+
+### Learning results
+
+| Network    | Final train loss | Final train accuracy | Validation loss | Validation accuracy |
+| ---------- | ---------------: | -------------------: | --------------: | ------------------: |
+| ReLU       |           0.0522 |               98.31% |          0.0697 |              98.09% |
+| Sigmoid    |           0.1192 |               96.45% |          0.0969 |              97.03% |
+| Large ReLU |           0.2237 |               93.57% |          0.1867 |              94.54% |
+
+The ReLU network converged faster and reached higher accuracy with half as many parameters as the sigmoid network. ReLU is also cheaper to evaluate. It reduces to comparisons and stores, while sigmoid still evaluates an approximate exponential despite its SIMD implementation. The sigmoid network needed more width and a learning rate of 0.2, compared with 0.05 for ReLU.
+
+The ReLU training loss continued to fall late in the run, while validation loss finished higher. This is the start of overfitting. Dropout limits the gap, but 50 epochs already move the model from generalization toward memorization.
+
+Training metrics include active dropout masks. Validation disables dropout. This can make validation accuracy higher than the final training accuracy, as seen for sigmoid and the large network.
+
+The large network was still improving after 20 epochs. With its wide fan-out and learning rate of 0.005, it can benefit from more epochs. Its current validation accuracy does not indicate convergence.
+
+### Prediction and model loading
+
+On the Ryzen system, the complete `predict` command took 741.8 ± 78.3 µs over 5,000 runs. Peak memory was 5.6 MiB. This run used `OPENBLAS_NUM_THREADS=1`.
+
+The measurement includes process startup, image decoding, loading two model files, validating them, running both forward passes, and writing the output. These fixed costs can dominate a single-image run.
+
+The activation choice has little effect on this end-to-end latency at the current model sizes. The sample image is also close to a decision boundary: small differences between training runs can change whether sigmoid, ReLU, or both classify it correctly. One prediction is therefore a functional example, not an accuracy measurement.
+
+Serialization writes the operation plan, arena layout, and `f32` parameters. Each file starts with a magic number and format version. Deserialization checks the operation order, arena ranges, parameter count, and payload length before it allocates the parameter buffer. Sessions are runtime state and are not stored.
+
+Use `perf stat` and `/usr/bin/time -v` on Linux. Use Instruments and `/usr/bin/time -l` on macOS.
