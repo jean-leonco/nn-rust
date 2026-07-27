@@ -108,61 +108,63 @@ impl serialization::Encodable for Dropout {
     }
 }
 
-/// Applies dropout in-place.
-pub fn forward(
-    operation: &Dropout,
-    activations: &mut [f32],
-    masks: &mut [u8],
-    step: usize,
-    key_schedule: &cbrng::KeySchedule,
-) {
-    assert_eq!(activations.len(), masks.len());
+impl Dropout {
+    /// Applies dropout in-place.
+    pub fn forward(
+        &self,
+        activations: &mut [f32],
+        masks: &mut [u8],
+        step: usize,
+        key_schedule: &cbrng::KeySchedule,
+    ) {
+        assert_eq!(activations.len(), masks.len());
 
-    let mut counters = [
-        u32x8::splat(0),
-        u32x8::splat(operation.relative_activation_range.start as u32),
-        u32x8::splat(step as u32),
-        u32x8::splat(0_u32),
-    ];
+        let mut counters = [
+            u32x8::splat(0),
+            u32x8::splat(self.relative_activation_range.start as u32),
+            u32x8::splat(step as u32),
+            u32x8::splat(0_u32),
+        ];
 
-    let (activation_chunks, remaining_activations) = activations.as_chunks_mut::<32>();
-    let (mask_chunks, remaining_masks) = masks.as_chunks_mut::<32>();
+        let (activation_chunks, remaining_activations) = activations.as_chunks_mut::<32>();
+        let (mask_chunks, remaining_masks) = masks.as_chunks_mut::<32>();
 
-    let mut block_idx = 0;
-    for (activation_chunk, mask_chunk) in activation_chunks.iter_mut().zip(mask_chunks) {
-        counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
-        let bernoulli_masks = cbrng::bernoulli(counters, key_schedule, operation.survival_rate);
+        let mut block_idx = 0;
+        for (activation_chunk, mask_chunk) in activation_chunks.iter_mut().zip(mask_chunks) {
+            counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
+            let bernoulli_masks = cbrng::bernoulli(counters, key_schedule, self.survival_rate);
 
-        for i in 0..32 {
-            let mask = bernoulli_masks[i];
-            mask_chunk[i] = mask;
-            activation_chunk[i] *= u32::from(mask) as f32 * operation.inv_survival_rate;
+            for i in 0..32 {
+                let mask = bernoulli_masks[i];
+                mask_chunk[i] = mask;
+                activation_chunk[i] *= u32::from(mask) as f32 * self.inv_survival_rate;
+            }
+
+            block_idx += 1;
         }
 
-        block_idx += 1;
-    }
+        if !remaining_activations.is_empty() {
+            counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
+            let bernoulli_masks =
+                cbrng::bernoulli(counters, key_schedule, self.survival_rate).to_array();
+            let bernoulli_masks_slice = &bernoulli_masks[..remaining_activations.len()];
 
-    if !remaining_activations.is_empty() {
-        counters[0] = u32x8::splat(block_idx * 8) + cbrng::LANE_IOTA;
-        let bernoulli_masks =
-            cbrng::bernoulli(counters, key_schedule, operation.survival_rate).to_array();
-        let bernoulli_masks_slice = &bernoulli_masks[..remaining_activations.len()];
-
-        for ((activation, mask), remaining_mask) in remaining_activations
-            .iter_mut()
-            .zip(remaining_masks)
-            .zip(bernoulli_masks_slice)
-        {
-            *mask = *remaining_mask;
-            *activation *= u32::from(*mask) as f32 * operation.inv_survival_rate;
+            for ((activation, mask), remaining_mask) in remaining_activations
+                .iter_mut()
+                .zip(remaining_masks)
+                .zip(bernoulli_masks_slice)
+            {
+                *mask = *remaining_mask;
+                *activation *= u32::from(*mask) as f32 * self.inv_survival_rate;
+            }
         }
     }
-}
 
-/// Applies the dropout derivative in-place.
-pub fn backward(operation: &Dropout, dz: &mut [f32], da: &[f32], masks: &[u8]) {
-    for ((dz, da), mask) in dz.iter_mut().zip(da.iter()).zip(masks.iter()) {
-        *dz = da * f32::from(*mask) * operation.inv_survival_rate;
+    /// Applies the dropout derivative in-place.
+    pub fn backward(&self, dz: &mut [f32], da: &[f32], masks: &[u8]) {
+        for ((dz, da), mask) in dz.iter_mut().zip(da.iter()).zip(masks.iter()) {
+            *dz = da * f32::from(*mask) * self.inv_survival_rate;
+        }
     }
 }
 
@@ -195,7 +197,7 @@ mod tests {
         let seed = [u32x8::splat(0); 2];
         let key_schedule = cbrng::build_key_schedule(seed);
 
-        forward(&operation, &mut activations, &mut mask, step, &key_schedule);
+        operation.forward(&mut activations, &mut mask, step, &key_schedule);
 
         assert_eq!(mask, vec![1, 0, 1, 0]);
         assert_eq!(activations, vec![2.0, 0.0, 6.0, 0.0]);
@@ -208,7 +210,7 @@ mod tests {
         let da = vec![1.5, 2.5, 3.5, 4.5];
         let mask = vec![1, 0, 1, 0];
 
-        backward(&operation, &mut dz, &da, &mask);
+        operation.backward(&mut dz, &da, &mask);
 
         assert_eq!(dz, vec![3.0, 0.0, 7.0, 0.0]);
     }
@@ -226,8 +228,8 @@ mod tests {
         let mut dz = vec![0.0; 4];
         let da = vec![1.5, 2.5, 3.5, 4.5];
 
-        forward(&operation, &mut activations, &mut mask, step, &key_schedule);
-        backward(&operation, &mut dz, &da, &mask);
+        operation.forward(&mut activations, &mut mask, step, &key_schedule);
+        operation.backward(&mut dz, &da, &mask);
 
         assert_eq!(mask, vec![1, 0, 1, 0]);
         assert_eq!(activations, vec![2.0, 0.0, 6.0, 0.0]);

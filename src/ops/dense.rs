@@ -130,116 +130,112 @@ impl serialization::Encodable for Dense {
     }
 }
 
-/// Forward pass: `Y = X Wᵀ + b`.
-///
-/// Shapes: `X [B, input_dim]`, `W [output_dim, input_dim]`, `b [output_dim]`,
-/// `Y [B, output_dim]`. All row-major.
-///
-/// # Panics
-///
-/// Panics if `bias.len() != output_dim`.
-pub fn forward(
-    operation: &Dense,
-    batch_size: usize,
-    input: &[f32],
-    weights: &[f32],
-    bias: &[f32],
-    output: &mut [f32],
-) {
-    assert_eq!(operation.output_dim, bias.len());
+impl Dense {
+    /// Forward pass: `Y = X Wᵀ + b`.
+    ///
+    /// Shapes: `X [B, input_dim]`, `W [output_dim, input_dim]`, `b [output_dim]`,
+    /// `Y [B, output_dim]`. All row-major.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bias.len() != output_dim`.
+    pub fn forward(
+        &self,
+        batch_size: usize,
+        input: &[f32],
+        weights: &[f32],
+        bias: &[f32],
+        output: &mut [f32],
+    ) {
+        assert_eq!(self.output_dim, bias.len());
 
-    gemm::sgemm(
-        cblas::Transpose::None,
-        cblas::Transpose::Ordinary,
-        batch_size,
-        operation.output_dim,
-        operation.input_dim,
-        1.0,
-        input,
-        operation.input_dim,
-        weights,
-        operation.input_dim,
-        0.0,
-        output,
-        operation.output_dim,
-    );
+        gemm::sgemm(
+            cblas::Transpose::None,
+            cblas::Transpose::Ordinary,
+            batch_size,
+            self.output_dim,
+            self.input_dim,
+            1.0,
+            input,
+            self.input_dim,
+            weights,
+            self.input_dim,
+            0.0,
+            output,
+            self.output_dim,
+        );
 
-    for row in output.chunks_mut(operation.output_dim) {
-        for (out, bias) in row.iter_mut().zip(bias.iter()) {
-            *out += bias;
+        for row in output.chunks_mut(self.output_dim) {
+            for (out, bias) in row.iter_mut().zip(bias.iter()) {
+                *out += bias;
+            }
         }
     }
-}
 
-/// Parameter gradients averaged over the batch: `dW = dZᵀ X / B`, `dB = Σ_rows(dZ) / B`.
-///
-/// Shapes: `dZ [B, output_dim]`, `X [B, input_dim]`, `dW [output_dim, input_dim]`,
-/// `dB [output_dim]`. All row-major.
-///
-/// # Panics
-///
-/// Panics if `db.len() != output_dim`.
-pub fn backward_parameters(
-    operation: &Dense,
-    batch_size: usize,
-    dw: &mut [f32],
-    db: &mut [f32],
-    dz: &[f32],
-    input: &[f32],
-) {
-    assert_eq!(operation.output_dim, db.len());
+    /// Parameter gradients averaged over the batch: `dW = dZᵀ X / B`, `dB = Σ_rows(dZ) / B`.
+    ///
+    /// Shapes: `dZ [B, output_dim]`, `X [B, input_dim]`, `dW [output_dim, input_dim]`,
+    /// `dB [output_dim]`. All row-major.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `db.len() != output_dim`.
+    pub fn backward_parameters(
+        &self,
+        batch_size: usize,
+        dw: &mut [f32],
+        db: &mut [f32],
+        dz: &[f32],
+        input: &[f32],
+    ) {
+        assert_eq!(self.output_dim, db.len());
 
-    gemm::sgemm(
-        cblas::Transpose::Ordinary,
-        cblas::Transpose::None,
-        operation.output_dim,
-        operation.input_dim,
-        batch_size,
-        1.0 / batch_size as f32,
-        dz,
-        operation.output_dim,
-        input,
-        operation.input_dim,
-        0.0,
-        dw,
-        operation.input_dim,
-    );
+        gemm::sgemm(
+            cblas::Transpose::Ordinary,
+            cblas::Transpose::None,
+            self.output_dim,
+            self.input_dim,
+            batch_size,
+            1.0 / batch_size as f32,
+            dz,
+            self.output_dim,
+            input,
+            self.input_dim,
+            0.0,
+            dw,
+            self.input_dim,
+        );
 
-    db.fill(0.0);
-    let scale = 1.0 / batch_size as f32;
-    for row in dz.chunks(operation.output_dim) {
-        for (db_j, dz_j) in db.iter_mut().zip(row) {
-            *db_j += scale * dz_j;
+        db.fill(0.0);
+        let scale = 1.0 / batch_size as f32;
+        for row in dz.chunks(self.output_dim) {
+            for (db_j, dz_j) in db.iter_mut().zip(row) {
+                *db_j += scale * dz_j;
+            }
         }
     }
-}
 
-/// Input gradient: `dA = dZ W`.
-///
-/// Shapes: `dZ [B, output_dim]`, `W [output_dim, input_dim]`,
-/// `dA [B, input_dim]`. All row-major.
-pub fn backward_input(
-    operation: &Dense,
-    batch_size: usize,
-    da: &mut [f32],
-    dz: &[f32],
-    weights: &[f32],
-) {
-    gemm::sgemm(
-        cblas::Transpose::None,
-        cblas::Transpose::None,
-        batch_size,
-        operation.input_dim,
-        operation.output_dim,
-        1.0,
-        dz,
-        operation.output_dim,
-        weights,
-        operation.input_dim,
-        0.0,
-        da,
-        operation.input_dim,
-    );
+    /// Input gradient: `dA = dZ W`.
+    ///
+    /// Shapes: `dZ [B, output_dim]`, `W [output_dim, input_dim]`,
+    /// `dA [B, input_dim]`. All row-major.
+    pub fn backward_input(&self, batch_size: usize, da: &mut [f32], dz: &[f32], weights: &[f32]) {
+        gemm::sgemm(
+            cblas::Transpose::None,
+            cblas::Transpose::None,
+            batch_size,
+            self.input_dim,
+            self.output_dim,
+            1.0,
+            dz,
+            self.output_dim,
+            weights,
+            self.input_dim,
+            0.0,
+            da,
+            self.input_dim,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -273,14 +269,7 @@ mod tests {
         let bias = vec![0.5, -0.5, 1.0];
         let mut activations = vec![0.0; 6];
 
-        forward(
-            &operation,
-            batch_size,
-            &input,
-            &weights,
-            &bias,
-            &mut activations,
-        );
+        operation.forward(batch_size, &input, &weights, &bias, &mut activations);
 
         assert_close(&activations, &[1.5, 1.5, 4.0, 3.5, 3.5, 8.0]);
     }
@@ -294,7 +283,7 @@ mod tests {
         let mut dw = vec![0.0; 6];
         let mut db = vec![0.0; 3];
 
-        backward_parameters(&operation, batch_size, &mut dw, &mut db, &dz, &input);
+        operation.backward_parameters(batch_size, &mut dw, &mut db, &dz, &input);
 
         assert_close(&dw, &[0.5, 2.0, 1.0, 2.5, 1.5, 3.0]);
         assert_close(&db, &[2.5, 3.5, 4.5]);
@@ -308,7 +297,7 @@ mod tests {
         let weights = vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let mut da = vec![0.0; 4];
 
-        backward_input(&operation, batch_size, &mut da, &dz, &weights);
+        operation.backward_input(batch_size, &mut da, &dz, &weights);
 
         assert_close(&da, &[4.0, 5.0, 10.0, 11.0]);
     }
@@ -326,15 +315,8 @@ mod tests {
         let mut dw = vec![0.0; 6];
         let mut db = vec![0.0; 3];
 
-        forward(
-            &operation,
-            batch_size,
-            &input,
-            &weights,
-            &bias,
-            &mut activations,
-        );
-        backward_parameters(&operation, batch_size, &mut dw, &mut db, &dz, &input);
+        operation.forward(batch_size, &input, &weights, &bias, &mut activations);
+        operation.backward_parameters(batch_size, &mut dw, &mut db, &dz, &input);
 
         assert_close(&activations, &[1.5, 1.5, 4.0, 3.5, 3.5, 8.0]);
         assert_close(&dw, &[6.5, 9.0, 8.5, 12.0, 10.5, 15.0]);
@@ -353,15 +335,8 @@ mod tests {
         let dz = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let mut da = vec![0.0; 4];
 
-        forward(
-            &operation,
-            batch_size,
-            &input,
-            &weights,
-            &bias,
-            &mut activations,
-        );
-        backward_input(&operation, batch_size, &mut da, &dz, &weights);
+        operation.forward(batch_size, &input, &weights, &bias, &mut activations);
+        operation.backward_input(batch_size, &mut da, &dz, &weights);
 
         assert_close(&activations, &[1.5, 1.5, 4.0, 3.5, 3.5, 8.0]);
         assert_close(&da, &[4.0, 5.0, 10.0, 11.0]);

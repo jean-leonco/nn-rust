@@ -47,18 +47,20 @@ impl serialization::Encodable for Relu {
     }
 }
 
-/// Applies `ReLU` in-place: `f(x) = max(0, x)`.
-pub fn forward(activations: &mut [f32]) {
-    for val in activations {
-        *val = val.max(0.0);
+impl Relu {
+    /// Applies `ReLU` in-place: `f(x) = max(0, x)`.
+    pub fn forward(&self, activations: &mut [f32]) {
+        for val in activations {
+            *val = val.max(0.0);
+        }
     }
-}
 
-/// Applies the `ReLU` derivative in-place: `f'(x) = 1 if x > 0, else 0`.
-pub fn backward(dz: &mut [f32], da: &[f32], activations: &[f32]) {
-    for ((da, dz), a) in da.iter().zip(dz.iter_mut()).zip(activations.iter()) {
-        let derivative = if *a > 0.0 { 1.0 } else { 0.0 };
-        *dz = da * derivative;
+    /// Applies the `ReLU` derivative in-place: `f'(x) = 1 if x > 0, else 0`.
+    pub fn backward(&self, dz: &mut [f32], da: &[f32], activations: &[f32]) {
+        for ((da, dz), a) in da.iter().zip(dz.iter_mut()).zip(activations.iter()) {
+            let derivative = if *a > 0.0 { 1.0 } else { 0.0 };
+            *dz = da * derivative;
+        }
     }
 }
 
@@ -77,8 +79,9 @@ mod tests {
     #[test]
     fn test_forward() {
         let mut activations = vec![-2.0, -0.0, 1.0, 3.5];
+        let operation = Relu::new(0..4);
 
-        forward(&mut activations);
+        operation.forward(&mut activations);
         assert_eq!(activations, vec![0.0, 0.0, 1.0, 3.5]);
     }
 
@@ -88,7 +91,8 @@ mod tests {
         let da = vec![1.5, -2.0, 3.0, 0.5];
         let activations = vec![0.0, 0.0, 1.0, 3.5];
 
-        backward(&mut dz, &da, &activations);
+        let operation = Relu::new(0..4);
+        operation.backward(&mut dz, &da, &activations);
         assert_eq!(dz, vec![0.0, 0.0, 3.0, 0.5]);
     }
 
@@ -98,8 +102,9 @@ mod tests {
         let mut dz = vec![0.0; 4];
         let da = vec![1.5, -2.0, 3.0, 0.5];
 
-        forward(&mut activations);
-        backward(&mut dz, &da, &activations);
+        let operation = Relu::new(0..4);
+        operation.forward(&mut activations);
+        operation.backward(&mut dz, &da, &activations);
 
         assert_eq!(activations, vec![0.0, 0.0, 1.0, 3.5]);
         assert_eq!(dz, vec![0.0, 0.0, 3.0, 0.5]);

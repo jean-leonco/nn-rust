@@ -41,27 +41,29 @@ impl serialization::Encodable for MeanSquaredError {
     }
 }
 
-/// Computes the mean squared error gradient: `dZ = 2(P - Y) / D`.
-///
-/// # Panics
-///
-/// Panics if `dz`, `predicted`, and `targets` have unequal lengths.
-pub fn backward(operation: &MeanSquaredError, dz: &mut [f32], predicted: &[f32], targets: &[f32]) {
-    assert_eq!(
-        dz.len(),
-        predicted.len(),
-        "gradient and prediction lengths differ"
-    );
-    assert_eq!(
-        predicted.len(),
-        targets.len(),
-        "prediction and target lengths differ"
-    );
+impl MeanSquaredError {
+    /// Computes the mean squared error gradient: `dZ = 2(P - Y) / D`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `dz`, `predicted`, and `targets` have unequal lengths.
+    pub fn backward(&self, dz: &mut [f32], predicted: &[f32], targets: &[f32]) {
+        assert_eq!(
+            dz.len(),
+            predicted.len(),
+            "gradient and prediction lengths differ"
+        );
+        assert_eq!(
+            predicted.len(),
+            targets.len(),
+            "prediction and target lengths differ"
+        );
 
-    let output_dim = operation.relative_activation_range.len();
-    let scale = 2.0 / output_dim as f32;
+        let output_dim = self.relative_activation_range.len();
+        let scale = 2.0 / output_dim as f32;
 
-    for ((dz, p), y) in dz.iter_mut().zip(predicted.iter()).zip(targets.iter()) {
-        *dz = scale * (p - y);
+        for ((dz, p), y) in dz.iter_mut().zip(predicted.iter()).zip(targets.iter()) {
+            *dz = scale * (p - y);
+        }
     }
 }

@@ -46,68 +46,73 @@ impl serialization::Encodable for SoftmaxCrossEntropy {
     }
 }
 
-/// Approximate softmax row-wise in-place.
-///
-///   `p_i = exp(x_i - max(x)) / sum_j exp(x_j - max(x))`
-///
-/// Uses Schraudolph approximate exponential.
-///
-/// # Panics
-///
-/// Panics if `output_dim` is zero or `activations.len() % output_dim != 0`.
-pub fn forward(operation: &SoftmaxCrossEntropy, activations: &mut [f32]) {
-    assert!(
-        operation.output_dim > 0,
-        "softmax output dimension must be non-zero"
-    );
-    assert_eq!(
-        activations.len() % operation.output_dim,
-        0,
-        "softmax input must contain whole rows"
-    );
-    for row in &mut activations.chunks_mut(operation.output_dim) {
-        let max = row.iter().fold(f32::NEG_INFINITY, |acc, &val| acc.max(val));
-        let (chunks, mut remainder) = row.as_chunks_mut::<16>();
-        for chunk in chunks {
-            math::schraudolph_array(chunk, max);
-        }
-        if remainder.len() >= 8 {
-            let (chunk, tail) = remainder.split_at_mut(8);
-            math::schraudolph_array::<8>(chunk.try_into().expect("chunk has eight elements"), max);
-            remainder = tail;
-        }
-        for val in remainder {
-            *val = math::schraudolph(*val - max);
-        }
+impl SoftmaxCrossEntropy {
+    /// Approximate softmax row-wise in-place.
+    ///
+    ///   `p_i = exp(x_i - max(x)) / sum_j exp(x_j - max(x))`
+    ///
+    /// Uses Schraudolph approximate exponential.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `output_dim` is zero or `activations.len() % output_dim != 0`.
+    pub fn forward(&self, activations: &mut [f32]) {
+        assert!(
+            self.output_dim > 0,
+            "softmax output dimension must be non-zero"
+        );
+        assert_eq!(
+            activations.len() % self.output_dim,
+            0,
+            "softmax input must contain whole rows"
+        );
+        for row in &mut activations.chunks_mut(self.output_dim) {
+            let max = row.iter().fold(f32::NEG_INFINITY, |acc, &val| acc.max(val));
+            let (chunks, mut remainder) = row.as_chunks_mut::<16>();
+            for chunk in chunks {
+                math::schraudolph_array(chunk, max);
+            }
+            if remainder.len() >= 8 {
+                let (chunk, tail) = remainder.split_at_mut(8);
+                math::schraudolph_array::<8>(
+                    chunk.try_into().expect("chunk has eight elements"),
+                    max,
+                );
+                remainder = tail;
+            }
+            for val in remainder {
+                *val = math::schraudolph(*val - max);
+            }
 
-        let total = row.iter().sum::<f32>();
-        for val in row.iter_mut() {
-            *val *= 1.0 / total;
+            let total = row.iter().sum::<f32>();
+            for val in row.iter_mut() {
+                *val *= 1.0 / total;
+            }
         }
     }
-}
 
-/// Surrogate gradient for fused softmax + cross-entropy: `dZ = P - Y`.
-///
-/// Uses the exact softmax derivative despite [`forward`] using approximate
-/// exponential. This is a standard surrogate that avoids the full Jacobian.
-///
-/// # Panics
-///
-/// Panics if `dz`, `predicted`, and `targets` have unequal lengths.
-pub fn backward(dz: &mut [f32], predicted: &[f32], targets: &[f32]) {
-    assert_eq!(
-        dz.len(),
-        predicted.len(),
-        "gradient and prediction lengths differ"
-    );
-    assert_eq!(
-        predicted.len(),
-        targets.len(),
-        "prediction and target lengths differ"
-    );
-    for ((dz, p), y) in dz.iter_mut().zip(predicted.iter()).zip(targets.iter()) {
-        *dz = p - y;
+    /// Surrogate gradient for fused softmax + cross-entropy: `dZ = P - Y`.
+    ///
+    /// Uses the exact softmax derivative despite [`forward`] using approximate
+    /// exponential. This is a standard surrogate that avoids the full Jacobian.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `dz`, `predicted`, and `targets` have unequal lengths.
+    pub fn backward(&self, dz: &mut [f32], predicted: &[f32], targets: &[f32]) {
+        assert_eq!(
+            dz.len(),
+            predicted.len(),
+            "gradient and prediction lengths differ"
+        );
+        assert_eq!(
+            predicted.len(),
+            targets.len(),
+            "prediction and target lengths differ"
+        );
+        for ((dz, p), y) in dz.iter_mut().zip(predicted.iter()).zip(targets.iter()) {
+            *dz = p - y;
+        }
     }
 }
 
@@ -128,7 +133,7 @@ mod tests {
         let operation = SoftmaxCrossEntropy::new(0..6, 3);
         let mut activations = vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0];
 
-        forward(&operation, &mut activations);
+        operation.forward(&mut activations);
 
         let sum1 = 1.0_f32.exp() + 2.0_f32.exp() + 3.0_f32.exp();
         let p0 = 1.0_f32.exp() / sum1;
@@ -149,7 +154,8 @@ mod tests {
         let mut dz = vec![0.0; 6];
         let targets = vec![0.0, 0.0, 1.0, 0.0, 1.0, 0.0];
 
-        backward(&mut dz, &predicted, &targets);
+        let operation = SoftmaxCrossEntropy::new(0..6, 3);
+        operation.backward(&mut dz, &predicted, &targets);
 
         assert!((dz[0] - 0.1).abs() < 0.05);
         assert!((dz[1] - 0.2).abs() < 0.05);
@@ -167,8 +173,8 @@ mod tests {
         let mut dz = vec![0.0; 6];
         let targets = vec![0.0, 0.0, 1.0, 0.0, 1.0, 0.0];
 
-        forward(&operation, &mut activations);
-        backward(&mut dz, &activations, &targets);
+        operation.forward(&mut activations);
+        operation.backward(&mut dz, &activations, &targets);
 
         let sum1 = 1.0_f32.exp() + 2.0_f32.exp() + 3.0_f32.exp();
         let p0 = 1.0_f32.exp() / sum1;
@@ -214,10 +220,10 @@ mod tests {
 
         let operation = SoftmaxCrossEntropy::new(0..n_classes, n_classes);
         let mut activations = inputs.clone();
-        forward(&operation, &mut activations);
+        operation.forward(&mut activations);
 
         let mut dz = vec![0.0; n_classes];
-        backward(&mut dz, &activations, &targets);
+        operation.backward(&mut dz, &activations, &targets);
 
         // The surrogate gradient direction should match the numerical gradient.
         // Allow larger tolerance since forward uses approximate exp.

@@ -1,10 +1,6 @@
 use std::simd::prelude::*;
 
-use crate::{
-    core::cbrng,
-    model::SequentialModel,
-    ops::{Operation, dense, dropout, mse, relu, sigmoid, softmax_cross_entropy},
-};
+use crate::{core::cbrng, model::SequentialModel, ops::Operation};
 
 /// Reusable execution buffers for a sequential model at a fixed batch size.
 #[derive(Debug)]
@@ -69,14 +65,7 @@ impl Session {
                     let layer_weights = &params[operation.weight_range.clone()];
                     let layer_bias = &params[operation.bias_range.clone()];
 
-                    dense::forward(
-                        operation,
-                        self.batch_size,
-                        x,
-                        layer_weights,
-                        layer_bias,
-                        output_slice,
-                    );
+                    operation.forward(self.batch_size, x, layer_weights, layer_bias, output_slice);
                 }
                 Operation::Dense(operation) => {
                     let (input, output) = self
@@ -89,8 +78,7 @@ impl Session {
                     let layer_weights = &params[operation.weight_range.clone()];
                     let layer_bias = &params[operation.bias_range.clone()];
 
-                    dense::forward(
-                        operation,
+                    operation.forward(
                         self.batch_size,
                         input_slice,
                         layer_weights,
@@ -103,19 +91,19 @@ impl Session {
                         &mut self.activations[operation.activation_range(self.batch_size)];
                     let masks = &mut self.masks[operation.mask_range(self.batch_size)];
 
-                    dropout::forward(operation, activations, masks, self.step, &self.key_schedule);
+                    operation.forward(activations, masks, self.step, &self.key_schedule);
                 }
                 Operation::Relu(operation) => {
                     let activations =
                         &mut self.activations[operation.activation_range(self.batch_size)];
 
-                    relu::forward(activations);
+                    operation.forward(activations);
                 }
                 Operation::Sigmoid(operation) => {
                     let activations =
                         &mut self.activations[operation.activation_range(self.batch_size)];
 
-                    sigmoid::forward(activations);
+                    operation.forward(activations);
                 }
                 Operation::SoftmaxCrossEntropy(operation) => {
                     let activation_range = operation.activation_range(self.batch_size);
@@ -123,7 +111,7 @@ impl Session {
                     output_end = activation_range.end;
 
                     let activations = &mut self.activations[activation_range];
-                    softmax_cross_entropy::forward(operation, activations);
+                    operation.forward(activations);
                 }
                 Operation::MeanSquaredError(operation) => {
                     let activation_range = operation.activation_range(self.batch_size);
@@ -150,7 +138,7 @@ impl Session {
                     let (dw, db) = layer_gradients.split_at_mut(weights_len);
                     let dz = &read_buf[operation.gradient_range(self.batch_size)];
 
-                    dense::backward_parameters(operation, self.batch_size, dw, db, dz, x);
+                    operation.backward_parameters(self.batch_size, dw, db, dz, x);
                 }
                 Operation::Dense(operation) => {
                     let layer_gradients =
@@ -164,18 +152,18 @@ impl Session {
                         &self.activations[..operation.activation_split_offset(self.batch_size)];
                     let input_slice = &activations[operation.input_range(self.batch_size)];
 
-                    dense::backward_parameters(operation, self.batch_size, dw, db, dz, input_slice);
+                    operation.backward_parameters(self.batch_size, dw, db, dz, input_slice);
 
                     let da = &mut write_buf[operation.input_gradient_range(self.batch_size)];
                     let layer_weights = &params[operation.weight_range.clone()];
-                    dense::backward_input(operation, self.batch_size, da, dz, layer_weights);
+                    operation.backward_input(self.batch_size, da, dz, layer_weights);
                 }
                 Operation::Dropout(operation) => {
                     let dz = &mut write_buf[operation.gradient_range(self.batch_size)];
                     let da = &read_buf[operation.gradient_range(self.batch_size)];
                     let masks = &self.masks[operation.mask_range(self.batch_size)];
 
-                    dropout::backward(operation, dz, da, masks);
+                    operation.backward(dz, da, masks);
                 }
                 Operation::Relu(operation) => {
                     let dz = &mut write_buf[operation.gradient_range(self.batch_size)];
@@ -183,7 +171,7 @@ impl Session {
                     let activations =
                         &self.activations[operation.activation_range(self.batch_size)];
 
-                    relu::backward(dz, da, activations);
+                    operation.backward(dz, da, activations);
                 }
                 Operation::Sigmoid(operation) => {
                     let dz = &mut write_buf[operation.gradient_range(self.batch_size)];
@@ -191,21 +179,21 @@ impl Session {
                     let activations =
                         &self.activations[operation.activation_range(self.batch_size)];
 
-                    sigmoid::backward(dz, da, activations);
+                    operation.backward(dz, da, activations);
                 }
                 Operation::SoftmaxCrossEntropy(operation) => {
                     let predictions =
                         &self.activations[operation.activation_range(self.batch_size)];
                     let dz = &mut write_buf[..predictions.len()];
 
-                    softmax_cross_entropy::backward(dz, predictions, y);
+                    operation.backward(dz, predictions, y);
                 }
                 Operation::MeanSquaredError(operation) => {
                     let predictions =
                         &self.activations[operation.activation_range(self.batch_size)];
                     let dz = &mut write_buf[..predictions.len()];
 
-                    mse::backward(operation, dz, predictions, y);
+                    operation.backward(dz, predictions, y);
                 }
             }
 

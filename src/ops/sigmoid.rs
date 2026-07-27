@@ -47,22 +47,24 @@ impl serialization::Encodable for Sigmoid {
     }
 }
 
-/// Applies sigmoid in-place: `f(x) = 1 / (1 + exp(-x))`.
-pub fn forward(activations: &mut [f32]) {
-    for val in activations {
-        let z = 1.0 / (1.0 + math::schraudolph(-*val));
-        *val = z;
+impl Sigmoid {
+    /// Applies sigmoid in-place: `f(x) = 1 / (1 + exp(-x))`.
+    pub fn forward(&self, activations: &mut [f32]) {
+        for val in activations {
+            let z = 1.0 / (1.0 + math::schraudolph(-*val));
+            *val = z;
+        }
     }
-}
 
-/// Applies the sigmoid derivative in-place: `f'(x) = x * (1 - x)`.
-pub fn backward(dz: &mut [f32], da: &[f32], activations: &[f32]) {
-    assert_eq!(da.len(), dz.len());
-    assert_eq!(da.len(), activations.len());
+    /// Applies the sigmoid derivative in-place: `f'(x) = x * (1 - x)`.
+    pub fn backward(&self, dz: &mut [f32], da: &[f32], activations: &[f32]) {
+        assert_eq!(da.len(), dz.len());
+        assert_eq!(da.len(), activations.len());
 
-    for ((da, dz), a) in da.iter().zip(dz.iter_mut()).zip(activations.iter()) {
-        let derivative = a * (1.0 - a);
-        *dz = da * derivative;
+        for ((da, dz), a) in da.iter().zip(dz.iter_mut()).zip(activations.iter()) {
+            let derivative = a * (1.0 - a);
+            *dz = da * derivative;
+        }
     }
 }
 
@@ -82,7 +84,8 @@ mod tests {
     fn test_forward() {
         let mut activations = vec![0.0, f32::INFINITY];
 
-        forward(&mut activations);
+        let operation = Sigmoid::new(0..2);
+        operation.forward(&mut activations);
 
         assert!((activations[0] - 0.5).abs() < 0.05);
         assert!((activations[1] - 1.0).abs() < 0.05);
@@ -94,7 +97,8 @@ mod tests {
         let da = vec![2.0, 4.0];
         let activations = vec![0.5, 1.0];
 
-        backward(&mut dz, &da, &activations);
+        let operation = Sigmoid::new(0..2);
+        operation.backward(&mut dz, &da, &activations);
 
         assert!((dz[0] - 0.5).abs() < 0.05);
         assert!((dz[1] - 0.0).abs() < 0.05);
@@ -106,8 +110,9 @@ mod tests {
         let mut dz = vec![0.0; 2];
         let da = vec![2.0, 4.0];
 
-        forward(&mut activations);
-        backward(&mut dz, &da, &activations);
+        let operation = Sigmoid::new(0..2);
+        operation.forward(&mut activations);
+        operation.backward(&mut dz, &da, &activations);
 
         assert!((activations[0] - 0.5).abs() < 0.05);
         assert!((activations[1] - 1.0).abs() < 0.05);
