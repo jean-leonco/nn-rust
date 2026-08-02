@@ -1,5 +1,5 @@
 /target
 /evals
-.trace/
+*.trace/
 flamegraph.svg
 perf.data*

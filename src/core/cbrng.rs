@@ -1,8 +1,8 @@
 use std::simd::prelude::*;
 
 pub const ROUNDS: usize = 10;
-const MULTIPLIER_0: u64 = 0xD2511F53;
-const MULTIPLIER_1: u64 = 0xCD9E8D57;
+const MULTIPLIER_0: u64x8 = u64x8::splat(0xD2511F53);
+const MULTIPLIER_1: u64x8 = u64x8::splat(0xCD9E8D57);
 const WEYL_0: u32 = 0x9E3779B9;
 const WEYL_1: u32 = 0xBB67AE85;
 /// The lane iota used for generating random numbers.
@@ -54,12 +54,9 @@ pub fn build_key_schedule(seed: [u32x8; 2]) -> KeySchedule {
 pub fn philox(counters: [u32x8; 4], key_schedule: &KeySchedule) -> [u32x8; 4] {
     let mut result = counters;
 
-    let mult_0 = u64x8::splat(MULTIPLIER_0);
-    let mult_1 = u64x8::splat(MULTIPLIER_1);
-
-    for key in key_schedule.iter().take(ROUNDS) {
-        let prod_0: u64x8 = result[0].cast::<u64>() * mult_0;
-        let prod_1: u64x8 = result[2].cast::<u64>() * mult_1;
+    for key in key_schedule {
+        let prod_0 = result[0].cast::<u64>() * MULTIPLIER_0;
+        let prod_1 = result[2].cast::<u64>() * MULTIPLIER_1;
 
         let hi0 = (prod_0 >> 32).cast::<u32>();
         let lo0 = prod_0.cast::<u32>();
